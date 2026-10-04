@@ -60,6 +60,12 @@ body {
     margin: 0 auto;
     padding: 3rem 1.5rem;
 }
+/* The entry editor (write + preview) and the calendar are grids, so they need
+   more room than the 68ch reading column. */
+.content:has(.entry-form),
+.content:has(.calendar) {
+    max-width: 72rem;
+}
 
 .page-header {
     display: flex;
@@ -162,21 +168,27 @@ body {
 
 .toolbar {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 0.25rem;
     align-items: center;
     padding: 0.35rem;
     margin-bottom: 0.5rem;
+    overflow-x: auto;
     border: 1px solid var(--line);
     border-radius: 6px 6px 0 0;
     background: var(--paper);
 }
 .tb {
-    min-width: 2rem;
-    padding: 0.2rem 0.45rem;
-    font-family: var(--serif);
-    font-size: 0.875rem;
-    line-height: 1.4;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    font-family: var(--sans);
+    font-size: 0.8125rem;
+    line-height: 1;
     color: var(--ink);
     background: transparent;
     border: 1px solid transparent;
@@ -187,14 +199,18 @@ body {
     background: var(--surface);
     border-color: var(--line);
 }
+.tb:hover {
+    background: var(--surface);
+    border-color: var(--line);
+}
 .tb:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: -1px;
 }
 .tb-sep {
+    flex: 0 0 auto;
     width: 1px;
     height: 1.25rem;
-    margin: 0 0.25rem;
     background: var(--line);
 }
 .editor .editor-textarea {
@@ -205,6 +221,9 @@ body {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 1.5rem;
+}
+.editor-pane {
+    min-width: 0;
 }
 .editor-textarea {
     width: 100%;
