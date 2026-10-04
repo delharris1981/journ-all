@@ -460,6 +460,8 @@ func (h *Handler) preview(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(buf.String()))
 }
 
+const sqliteTimeFormat = "2006-01-02 15:04:05"
+
 func (h *Handler) getEntries(userID int64, query string) ([]Entry, error) {
 	var rows *sql.Rows
 	var err error
@@ -491,8 +493,8 @@ func (h *Handler) getEntries(userID int64, query string) ([]Entry, error) {
 		if err := rows.Scan(&e.ID, &e.Title, &e.Body, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
-		e.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		e.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+		e.CreatedAt, _ = time.Parse(sqliteTimeFormat, createdAt)
+		e.UpdatedAt, _ = time.Parse(sqliteTimeFormat, updatedAt)
 		entries = append(entries, e)
 	}
 	for i := range entries {
@@ -511,8 +513,8 @@ func (h *Handler) getEntry(userID, id int64) (*Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	e.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	e.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	e.CreatedAt, _ = time.Parse(sqliteTimeFormat, createdAt)
+	e.UpdatedAt, _ = time.Parse(sqliteTimeFormat, updatedAt)
 	e.Tags, _ = h.getTagsForEntry(e.ID)
 	return &e, nil
 }
@@ -580,8 +582,8 @@ func (h *Handler) getEntriesByTag(userID int64, tagName string) ([]Entry, error)
 		if err := rows.Scan(&e.ID, &e.Title, &e.Body, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
-		e.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		e.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+		e.CreatedAt, _ = time.Parse(sqliteTimeFormat, createdAt)
+		e.UpdatedAt, _ = time.Parse(sqliteTimeFormat, updatedAt)
 		entries = append(entries, e)
 	}
 	for i := range entries {
