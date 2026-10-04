@@ -160,6 +160,47 @@ body {
     outline-offset: -1px;
 }
 
+.toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    align-items: center;
+    padding: 0.35rem;
+    margin-bottom: 0.5rem;
+    border: 1px solid var(--line);
+    border-radius: 6px 6px 0 0;
+    background: var(--paper);
+}
+.tb {
+    min-width: 2rem;
+    padding: 0.2rem 0.45rem;
+    font-family: var(--serif);
+    font-size: 0.875rem;
+    line-height: 1.4;
+    color: var(--ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.tb:hover {
+    background: var(--surface);
+    border-color: var(--line);
+}
+.tb:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -1px;
+}
+.tb-sep {
+    width: 1px;
+    height: 1.25rem;
+    margin: 0 0.25rem;
+    background: var(--line);
+}
+.editor .editor-textarea {
+    border-radius: 0 0 6px 6px;
+}
+
 .editor {
     display: grid;
     grid-template-columns: 1fr 1fr;

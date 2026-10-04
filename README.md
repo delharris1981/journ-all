@@ -22,7 +22,7 @@ Open http://localhost:8080 — sign up, start writing.
 ## Features
 
 - Multi-user with signup/login
-- Markdown editor with live preview (htmx)
+- Markdown editor with live preview (htmx) and formatting toolbar
 - Calendar view with entry indicators
 - Tags and filtering
 - Full-text search
