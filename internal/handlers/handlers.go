@@ -53,6 +53,36 @@ type CalendarData struct {
 	NextMonth int
 }
 
+// buildMonth returns whole weeks (leading and trailing days from the
+// neighbouring months) so the 7-column grid has no empty cells.
+func buildMonth(first time.Time, entryDates map[string]bool, today string) []CalendarDay {
+	monthEnd := first.AddDate(0, 1, 0)
+	last := monthEnd.AddDate(0, 0, -1)
+
+	var days []CalendarDay
+	startWeekday := int(first.Weekday())
+	for i := 0; i < startWeekday; i++ {
+		d := first.AddDate(0, 0, -startWeekday+i)
+		days = append(days, CalendarDay{
+			Date: d.Format("2006-01-02"), Day: d.Day(), OtherMonth: true,
+		})
+	}
+	for d := first; d.Before(monthEnd); d = d.AddDate(0, 0, 1) {
+		ds := d.Format("2006-01-02")
+		days = append(days, CalendarDay{
+			Date: ds, Day: d.Day(), HasEntry: entryDates[ds], IsToday: ds == today,
+		})
+	}
+	lastWeekday := int(last.Weekday())
+	for i := lastWeekday + 1; i < 7; i++ {
+		d := last.AddDate(0, 0, i-lastWeekday)
+		days = append(days, CalendarDay{
+			Date: d.Format("2006-01-02"), Day: d.Day(), OtherMonth: true,
+		})
+	}
+	return days
+}
+
 type PageData struct {
 	User     int64
 	Title    string
@@ -345,11 +375,11 @@ func (h *Handler) calendar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	first := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
-	last := first.AddDate(0, 1, 0).Add(-time.Nanosecond)
+	monthEnd := first.AddDate(0, 1, 0)
 
 	rows, err := h.db.Query(
-		"SELECT DISTINCT date(created_at) FROM entries WHERE user_id = ? AND created_at >= ? AND created_at <= ?",
-		userID, first.Format(time.RFC3339), last.Format(time.RFC3339),
+		"SELECT DISTINCT date(created_at) FROM entries WHERE user_id = ? AND created_at >= ? AND created_at < ?",
+		userID, first.Format(time.RFC3339), monthEnd.Format(time.RFC3339),
 	)
 	entryDates := make(map[string]bool)
 	if err == nil {
@@ -362,28 +392,7 @@ func (h *Handler) calendar(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	today := time.Now().Format("2006-01-02")
-	var days []CalendarDay
-	startWeekday := int(first.Weekday())
-	for i := 0; i < startWeekday; i++ {
-		d := first.AddDate(0, 0, -startWeekday+i)
-		days = append(days, CalendarDay{
-			Date: d.Format("2006-01-02"), Day: d.Day(), OtherMonth: true,
-		})
-	}
-	for d := first; d.Before(last.AddDate(0, 0, 1)); d = d.AddDate(0, 0, 1) {
-		ds := d.Format("2006-01-02")
-		days = append(days, CalendarDay{
-			Date: ds, Day: d.Day(), HasEntry: entryDates[ds], IsToday: ds == today,
-		})
-	}
-	endWeekday := int(last.Weekday())
-	for i := endWeekday + 1; i < 7; i++ {
-		d := last.AddDate(0, 0, i-endWeekday)
-		days = append(days, CalendarDay{
-			Date: d.Format("2006-01-02"), Day: d.Day(), OtherMonth: true,
-		})
-	}
+	days := buildMonth(first, entryDates, time.Now().Format("2006-01-02"))
 
 	prevMonth := month - 1
 	prevYear := year
