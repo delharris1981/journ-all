@@ -1,0 +1,25 @@
+{{template "base" .}}
+{{define "content"}}
+<article class="entry-view">
+    <header class="entry-header">
+        <h1 class="entry-title">{{.Entry.Title}}</h1>
+        <div class="entry-meta">
+            <span class="entry-date">{{.Entry.CreatedAt.Format "Jan 2, 2006"}}</span>
+            {{if .Entry.Tags}}
+            <span class="entry-tags">
+                {{range .Entry.Tags}}<a href="/tags/{{.Name}}" class="tag">{{.Name}}</a>{{end}}
+            </span>
+            {{end}}
+        </div>
+    </header>
+    <div class="markdown entry-body">
+        {{.Entry.Body | markdown}}
+    </div>
+    <footer class="entry-footer">
+        <a href="/entries/{{.Entry.ID}}/edit" class="btn">Edit</a>
+        <form method="post" action="/entries/{{.Entry.ID}}/delete" class="inline" onsubmit="return confirm('Delete this entry?');">
+            <button type="submit" class="btn btn-danger">Delete</button>
+        </form>
+    </footer>
+</article>
+{{end}}

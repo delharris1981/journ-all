@@ -1,0 +1,13 @@
+services:
+  journ-all:
+    image: ghcr.io/<you>/journ-all:latest
+    container_name: journ-all
+    user: "99:100"
+    ports:
+      - "8080:8080"
+    volumes:
+      - /mnt/user/appdata/journ-all:/data
+    environment:
+      - SESSION_SECRET=change-me
+      - DATABASE_PATH=/data/journall.db
+    restart: unless-stopped

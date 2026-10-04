@@ -1,0 +1,18 @@
+{{template "base" .}}
+{{define "content"}}
+<div class="page-header">
+    <h1 class="page-title">Calendar</h1>
+    <div class="calendar-nav">
+        <a href="/calendar?year={{.Calendar.PrevYear}}&month={{.Calendar.PrevMonth}}" class="btn">&larr;</a>
+        <span class="calendar-month">{{.Calendar.MonthName}} {{.Calendar.Year}}</span>
+        <a href="/calendar?year={{.Calendar.NextYear}}&month={{.Calendar.NextMonth}}" class="btn">&rarr;</a>
+    </div>
+</div>
+<div class="calendar">
+    {{range .Calendar.Days}}
+    <div class="calendar-day{{if .Other}} other-month{{end}}{{if .IsToday}} today{{end}}{{if .HasEntry}} has-entry{{end}}">
+        <div class="calendar-day-num">{{.Day}}</div>
+    </div>
+    {{end}}
+</div>
+{{end}}

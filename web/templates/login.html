@@ -1,0 +1,19 @@
+{{template "base" .}}
+{{define "content"}}
+<div class="auth-page">
+    <h1 class="auth-title">Log in</h1>
+    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+    <form method="post" action="/login" class="auth-form">
+        <div class="form-group">
+            <label class="form-label" for="email">Email</label>
+            <input class="form-input" type="email" id="email" name="email" required autofocus>
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="password">Password</label>
+            <input class="form-input" type="password" id="password" name="password" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Log in</button>
+    </form>
+    <p class="auth-alt">No account? <a href="/signup">Sign up</a></p>
+</div>
+{{end}}
