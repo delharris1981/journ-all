@@ -11,6 +11,7 @@ RUN apk add --no-cache ca-certificates tzdata wget && \
 USER 99:100
 WORKDIR /app
 COPY --from=build /server /app/server
+COPY --from=build /src/migrations /app/migrations
 VOLUME /data
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s \
