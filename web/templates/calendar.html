@@ -10,7 +10,7 @@
 </div>
 <div class="calendar">
     {{range .Calendar.Days}}
-    <div class="calendar-day{{if .Other}} other-month{{end}}{{if .IsToday}} today{{end}}{{if .HasEntry}} has-entry{{end}}">
+    <div class="calendar-day{{if .OtherMonth}} other-month{{end}}{{if .IsToday}} today{{end}}{{if .HasEntry}} has-entry{{end}}">
         <div class="calendar-day-num">{{.Day}}</div>
     </div>
     {{end}}
