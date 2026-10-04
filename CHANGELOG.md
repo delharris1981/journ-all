@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-10-04
+
+### Added
+- Full Markdown format toolbar: H1-H6, bold, italic, strikethrough, inline code, bullet/numbered/task lists, blockquote, link, image, table, fenced code block, divider, line break
+- Toolbar buttons are generated from a single format spec, so adding a format is one entry
+
+### Fixed
+- Toolbar rendered on `document`, not `document.body` — `DOMContentLoaded` never reached the old listener, leaving an empty toolbar
+- Numbered list no longer duplicates the line text
+- Toolbar moved above the editor grid so the write and preview panes share a top edge
+- Calendar always renders whole weeks (was pulling in the next month's first day and leaving a short final row)
+- Grid pages (editor, calendar) get 72rem instead of being squeezed into the 68ch reading column
+- Static assets send `Cache-Control: no-cache` so browsers pick up new app.js/app.css
+
 ## [1.1.0] - 2026-10-04
 
 ### Added

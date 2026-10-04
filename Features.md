@@ -6,10 +6,14 @@
 
 ## Features for verion bump v1.2.0
 
+- [x] full markdown format set in the toolbar (H1-H6, bold, italic, strikethrough, code, lists, task lists, quote, link, image, table, code block, divider, line break)
+
+## Features for verion bump v1.3.0
+
 - a Clickable calendar to show my enteries for that day.
 - light theme and dark theme selection.
 
-## Features for version bump 1.3.0
+## Features for version bump 1.4.0
 
 - better css styles for the fomatting eg header colours in style with the theme.
 - the Export to be exported as a zip of md files
