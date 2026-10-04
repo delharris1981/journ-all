@@ -96,7 +96,13 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("GET /signup", h.signup)
 	mux.HandleFunc("POST /signup", h.signupPost)
 	mux.HandleFunc("POST /logout", h.logout)
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
+	// no-cache so browsers always revalidate static assets, otherwise they keep
+	// serving a stale app.js/app.css after an upgrade.
+	assets := http.StripPrefix("/static/", http.FileServer(http.Dir("web/static")))
+	mux.Handle("GET /static/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		assets.ServeHTTP(w, r)
+	}))
 
 	mux.Handle("GET /", auth.Middleware(h.db, http.HandlerFunc(h.home)))
 	mux.Handle("GET /entries", auth.Middleware(h.db, http.HandlerFunc(h.entries)))
