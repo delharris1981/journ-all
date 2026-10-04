@@ -12,6 +12,7 @@ USER 99:100
 WORKDIR /app
 COPY --from=build /server /app/server
 COPY --from=build /src/migrations /app/migrations
+COPY --from=build /src/web /app/web
 VOLUME /data
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s \
