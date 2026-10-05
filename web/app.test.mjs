@@ -1,7 +1,6 @@
 // Run: node web/app.test.mjs
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
-
 const src = readFileSync(new URL('./static/app.js', import.meta.url), 'utf8');
 const load = async (stubs, names) => {
     const saved = { document: globalThis.document };
@@ -14,76 +13,68 @@ const load = async (stubs, names) => {
         globalThis.document = saved.document;
     }
 };
-
 const inert = { body: { addEventListener() {} }, addEventListener() {} };
-const { applyFormat, MD_SPEC } = await load(inert, ['applyFormat', 'MD_SPEC']);
+const { blockOf, inline, renderMd, nodeToSrc, mdOf, MD_SPEC } = await load(inert,
+    ['blockOf', 'inline', 'renderMd', 'nodeToSrc', 'mdOf', 'MD_SPEC']);
 
-// Fake textarea: setRangeText + selection only.
-const ta = (value, start, end) => ({
-    value, selectionStart: start, selectionEnd: end,
-    focus() {},
-    dispatchEvent() {},
-    setRangeText(text, s, e) {
-        this.value = this.value.slice(0, s) + text + this.value.slice(e);
-    },
-    setSelectionRange(s, e) { this.selectionStart = s; this.selectionEnd = e; },
+// blockOf: one raw line -> block element spec
+let b = blockOf('# Hello');
+assert.equal(b.tag, 'h1'); assert.equal(b.html, 'Hello');
+b = blockOf('###### deep');
+assert.equal(b.tag, 'h6');
+b = blockOf('> quoted');
+assert.equal(b.tag, 'blockquote'); assert.equal(b.html, 'quoted');
+b = blockOf('- [ ] buy milk');
+assert.equal(b.tag, 'task'); assert.equal(b.checked, false);
+b = blockOf('- [x] done');
+assert.equal(b.checked, true);
+b = blockOf('- item');
+assert.equal(b.tag, 'li');
+b = blockOf('1. first');
+assert.equal(b.tag, 'oli');
+b = blockOf('---');
+assert.equal(b.tag, 'hr');
+b = blockOf('plain text');
+assert.equal(b.tag, 'div'); assert.equal(b.html, 'plain text');
+
+// inline markdown -> html
+assert.equal(inline('**bold**'), '<strong>bold</strong>');
+assert.equal(inline('_it_'), '<em>it</em>');
+assert.equal(inline('~~gone~~'), '<s>gone</s>');
+assert.equal(inline('`code`'), '<code>code</code>');
+assert.equal(inline('[t](https://x)'), '<a href="https://x">t</a>');
+assert.equal(inline('![a](i.png)'), '<img src="i.png" alt="a">');
+assert.equal(inline('<b>esc</b>'), '&lt;b&gt;esc&lt;/b&gt;');
+
+// renderMd: full source -> editor html, consecutive items group into a list
+assert.equal(
+    renderMd('# T\n\nhello\n\n- a\n- b'),
+    '<h1>T</h1><div></div><div>hello</div><div></div><ul><li>a</li><li>b</li></ul>');
+assert.equal(
+    renderMd('- [ ] a\n- [x] b'),
+    '<ul><li class="task"><input type="checkbox"> a</li><li class="task"><input type="checkbox" checked> b</li></ul>');
+assert.equal(
+    renderMd('1. one\n2. two'),
+    '<ol><li>one</li><li>two</li></ol>');
+assert.equal(renderMd('---'), '<hr>');
+assert.equal(renderMd('```\n# not a heading\n```'),
+    '<div>```</div><div># not a heading</div><div>```</div>');
+
+// nodeToSrc: rendered tree -> raw markdown (round trip)
+const el = (tagName, childNodes, extra = {}) => ({
+    nodeType: 1, tagName, classList: { contains: () => false }, childNodes, getAttribute: extra.getAttribute, alt: extra.alt, textContent: extra.text,
 });
-
-const run = (kind, value = '', start = 0, end = start) => {
-    const t = ta(value, start, end);
-    applyFormat(t, kind);
-    return t;
-};
-
-let t = run('bold');
-assert.equal(t.value, '**bold text**');
-assert.equal(t.selectionStart, 2, 'caret inside bold wrapper');
-
-t = run('h1', 'hello world', 6, 11);
-assert.equal(t.value, 'hello \n# world', 'heading prefix on its own line');
-assert.equal(t.selectionStart, 9, 'caret after "# "');
-
-t = run('ol', 'a\nb\nc', 0, 5);
-assert.equal(t.value, '1. a\n2. b\n3. c', 'numbered list renumbers each line');
-
-t = run('strike', 'gone', 0, 4);
-assert.equal(t.value, '~~gone~~');
-
-t = run('h6');
-assert.equal(t.value, '###### Heading 6');
-
-t = run('task', 'buy milk', 0, 8);
-assert.equal(t.value, '- [ ] buy milk');
-
-t = run('quote', 'one\ntwo', 0, 7);
-assert.equal(t.value, '> one\n> two');
-
-t = run('ul', 'x\ny', 0, 3);
-assert.equal(t.value, '- x\n- y');
-
-t = run('image', 'cat.png', 0, 7);
-assert.equal(t.value, '![cat.png](image.png)');
-
-t = run('link', 'site', 0, 4);
-assert.equal(t.value, '[site](https://)');
-
-t = run('code');
-assert.equal(t.value, '`code`');
-
-t = run('table');
-assert.match(t.value, /^\| Column 1 \| Column 2 \|\n\| --- \| --- \|\n\| Cell \| Cell \|$/);
-
-t = run('codeblock');
-assert.equal(t.value, '```\n\n```');
-assert.equal(t.selectionStart, 4, 'caret between the fences');
-
-t = run('hr');
-assert.equal(t.value, '\n\n---\n\n');
-
-t = run('break');
-assert.equal(t.value, '  \n');
-
-assert.ok(MD_SPEC.filter(s => !s.sep).length >= 18, 'toolbar covers the md format set');
+const txt = (textContent) => ({ nodeType: 3, textContent });
+const tree = el('H1', [txt('Hello '), el('STRONG', [txt('world')])]);
+assert.equal(nodeToSrc(tree), '# Hello **world**');
+assert.equal(nodeToSrc(el('CODE', [], { text: 'x' })), '`x`');
+assert.equal(nodeToSrc(el('A', [txt('t')], { getAttribute: () => 'u' })), '[t](u)');
+assert.equal(nodeToSrc(el('OL', [el('LI', [txt('one')]), el('LI', [txt('two')])])), '1. one\n2. two');
+const taskLi = { nodeType: 1, tagName: 'LI', classList: { contains: (c) => c === 'task' }, childNodes: [{ nodeType: 1, tagName: 'INPUT', checked: true, classList: { contains: () => false }, childNodes: [] }, txt('done')] };
+const ul = { nodeType: 1, tagName: 'UL', classList: { contains: () => false }, childNodes: [taskLi] };
+assert.equal(nodeToSrc(ul), '- [x] done');
+const editorTree = { childNodes: [el('H1', [txt('T')]), el('DIV', [txt('body')])] };
+assert.equal(mdOf(editorTree), '# T\nbody');
 
 // The toolbar is built on DOMContentLoaded, which fires on document - a listener
 // on document.body silently never runs, leaving an empty toolbar.
@@ -106,5 +97,4 @@ assert.ok(MD_SPEC.filter(s => !s.sep).length >= 18, 'toolbar covers the md forma
     assert.equal(toolbar.children.filter(el => el.className === 'tb-sep').length,
         MD_SPEC.filter(s => s.sep).length, 'separators rendered');
 }
-
 console.log('ok');

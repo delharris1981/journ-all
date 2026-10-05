@@ -8,39 +8,39 @@ document.body.addEventListener('htmx:responseError', function(evt) {
 
 // Markdown formatting toolbar. One spec drives both the buttons and the
 // formatting, so adding a format is a single entry.
-//   w: [open, close, placeholder]  wraps the selection (or inserts placeholder)
-//   p: prefix                   applied to every selected line
-//   t: template                 inserted as-is, caret lands after it
+//   cmd:   [execCommand name, value]  runs document.execCommand
+//   wrap:  [open, close]              wraps the selection with literal md
+//   insert/block/html:                inserted as-is (caret after)
 const MD_SPEC = [
-    { k: 'h1', i: 'H1', t: 'Heading 1', p: '# ', ph: 'Heading 1' },
-    { k: 'h2', i: 'H2', t: 'Heading 2', p: '## ', ph: 'Heading 2' },
-    { k: 'h3', i: 'H3', t: 'Heading 3', p: '### ', ph: 'Heading 3' },
-    { k: 'h4', i: 'H4', t: 'Heading 4', p: '#### ', ph: 'Heading 4' },
-    { k: 'h5', i: 'H5', t: 'Heading 5', p: '##### ', ph: 'Heading 5' },
-    { k: 'h6', i: 'H6', t: 'Heading 6', p: '###### ', ph: 'Heading 6' },
+    { k: 'h1', i: 'H1', t: 'Heading 1', cmd: ['formatBlock', 'h1'] },
+    { k: 'h2', i: 'H2', t: 'Heading 2', cmd: ['formatBlock', 'h2'] },
+    { k: 'h3', i: 'H3', t: 'Heading 3', cmd: ['formatBlock', 'h3'] },
+    { k: 'h4', i: 'H4', t: 'Heading 4', cmd: ['formatBlock', 'h4'] },
+    { k: 'h5', i: 'H5', t: 'Heading 5', cmd: ['formatBlock', 'h5'] },
+    { k: 'h6', i: 'H6', t: 'Heading 6', cmd: ['formatBlock', 'h6'] },
     { sep: true },
-    { k: 'bold', i: '<b>B</b>', t: 'Bold', w: ['**', '**', 'bold text'] },
-    { k: 'italic', i: '<i>I</i>', t: 'Italic', w: ['_', '_', 'italic text'] },
-    { k: 'strike', i: '<s>S</s>', t: 'Strikethrough', w: ['~~', '~~', 'struck text'] },
-    { k: 'code', i: '&lt;&gt;', t: 'Inline code', w: ['`', '`', 'code'] },
+    { k: 'bold', i: '<b>B</b>', t: 'Bold', cmd: ['bold'] },
+    { k: 'italic', i: '<i>I</i>', t: 'Italic', cmd: ['italic'] },
+    { k: 'strike', i: '<s>S</s>', t: 'Strikethrough', cmd: ['strikeThrough'] },
+    { k: 'code', i: '&lt;&gt;', t: 'Inline code', wrap: '`' },
     { sep: true },
-    { k: 'ul', i: '&bull;', t: 'Bullet list', p: '- ', ph: 'List item' },
-    { k: 'ol', i: '1.', t: 'Numbered list', tpl: (l, i) => (i + 1) + '. ', ph: 'List item' },
-    { k: 'task', i: '&#9744;', t: 'Task list', p: '- [ ] ', ph: 'Task' },
-    { k: 'quote', i: '&rdquo;', t: 'Quote', p: '> ', ph: 'Quote' },
+    { k: 'ul', i: '&bull;', t: 'Bullet list', cmd: ['insertUnorderedList'] },
+    { k: 'ol', i: '1.', t: 'Numbered list', cmd: ['insertOrderedList'] },
+    { k: 'task', i: '&#9744;', t: 'Task list', insert: '- [ ] ' },
+    { k: 'quote', i: '&rdquo;', t: 'Quote', cmd: ['formatBlock', 'blockquote'] },
     { sep: true },
-    { k: 'link', i: '&#128279;', t: 'Link', w: ['[', '](https://)', 'link text'] },
-    { k: 'image', i: '&#128247;', t: 'Image', w: ['![', '](image.png)', 'alt text'] },
+    { k: 'link', i: '&#128279;', t: 'Link', wrap: ['[', '](https://)'] },
+    { k: 'image', i: '&#128247;', t: 'Image', wrap: ['![', '](image.png)'] },
     {
         k: 'table', i: '&#9638;', t: 'Table',
         block: '| Column 1 | Column 2 |\n| --- | --- |\n| Cell | Cell |',
     },
     {
         k: 'codeblock', i: '{ }', t: 'Code block',
-        block: '```\n\n```', at: 4,
+        block: '```\n\n```',
     },
-    { k: 'hr', i: '&mdash;', t: 'Divider', block: '\n\n---\n\n' },
-    { k: 'break', i: '&#9166;', t: 'Line break', block: '  \n' },
+    { k: 'hr', i: '&mdash;', t: 'Divider', html: '<hr>' },
+    { k: 'break', i: '&#9166;', t: 'Line break', html: '  <br>' },
 ];
 
 function mdButton(spec) {
@@ -65,49 +65,318 @@ function renderToolbar(toolbar) {
     }
 }
 
-function insertAt(textarea, text, selStart, selEnd) {
-    textarea.setRangeText(text, selStart, selEnd, 'end');
+function selectionText() {
+    const s = window.getSelection();
+    return s && s.rangeCount ? s.getRangeAt(0).toString() : '';
 }
 
-function applyFormat(textarea, kind) {
+function applyFormat(editor, kind) {
     const spec = MD_SPEC.find(s => s.k === kind);
     if (!spec) return;
-    const { selectionStart: s, selectionEnd: e, value: v } = textarea;
-
-    if (spec.w) {
-        const [open, close, fallback] = spec.w;
-        const sel = v.slice(s, e) || fallback;
-        insertAt(textarea, open + sel + close, s, e);
-        textarea.setSelectionRange(s + open.length, s + open.length + sel.length);
-    } else if (spec.p || spec.tpl) {
-        const sel = v.slice(s, e) || spec.ph;
-        const atLineStart = s === 0 || v[s - 1] === '\n';
-        const first = spec.tpl ? spec.tpl('', 0) : spec.p;
-        const body = sel.split('\n')
-            .map((line, i) => (spec.tpl ? spec.tpl(line, i) : spec.p) + line)
-            .join('\n');
-        insertAt(textarea, (atLineStart ? '' : '\n') + body, s, e);
-        const start = s + (atLineStart ? 0 : 1) + first.length;
-        textarea.setSelectionRange(start, start + sel.length);
-    } else {
-        insertAt(textarea, spec.block, s, e);
-        const at = s + (spec.at === undefined ? spec.block.length : spec.at);
-        textarea.setSelectionRange(at, at);
+    editor.focus();
+    if (spec.cmd) {
+        document.execCommand(spec.cmd[0], false, spec.cmd[1] || null);
+    } else if (spec.wrap) {
+        const [open, close] = Array.isArray(spec.wrap) ? spec.wrap : [spec.wrap, spec.wrap];
+        document.execCommand('insertText', false, open + (selectionText() || 'text') + close);
+    } else if (spec.insert) {
+        document.execCommand('insertText', false, spec.insert);
+    } else if (spec.block) {
+        const html = spec.block.split('\n').map(esc).map(l => `<div>${l}</div>`).join('');
+        document.execCommand('insertHTML', false, html);
+    } else if (spec.html) {
+        document.execCommand('insertHTML', false, spec.html);
     }
-    textarea.dispatchEvent(new Event('input', { bubbles: true }));
-    textarea.focus();
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 document.body.addEventListener('click', function(evt) {
     const btn = evt.target.closest('.tb[data-md]');
     if (!btn) return;
     evt.preventDefault();
-    const textarea = document.getElementById(btn.parentElement.dataset.for);
-    if (textarea) applyFormat(textarea, btn.dataset.md);
+    const editor = document.getElementById(btn.parentElement.dataset.for);
+    if (editor) applyFormat(editor, btn.dataset.md);
 });
 
 // DOMContentLoaded targets document, not body, so this listener must be on
 // document or the toolbar never renders.
 document.addEventListener('DOMContentLoaded', function() {
     for (const toolbar of document.querySelectorAll('.toolbar[data-for]')) renderToolbar(toolbar);
+    const editor = document.getElementById('editor');
+    const src = document.getElementById('body-src');
+    if (editor && src) initEditor(editor, src);
 });
+
+// ---------------------------------------------------------------------------
+// Live WYSIWYG markdown editor. The visible surface shows rendered markdown;
+// typing '# Title' turns that line into a heading in place. The hidden
+// textarea (#body-src) always holds the raw markdown source that gets posted.
+// ---------------------------------------------------------------------------
+
+function esc(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Inline markdown -> HTML. Order matters: code first so its contents are not
+// re-interpreted, then the longer tokens before their shorter overlaps.
+function inline(s) {
+    let h = esc(s);
+    h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
+    h = h.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    h = h.replace(/~~([^~]+)~~/g, '<s>$1</s>');
+    h = h.replace(/_([^_]+)_/g, '<em>$1</em>');
+    h = h.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">');
+    h = h.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+    return h;
+}
+
+// One raw line -> the block element kind wrapping its rendered HTML.
+function blockOf(line) {
+    let m;
+    if ((m = /^(#{1,6})\s+(.*)$/.exec(line))) return { tag: 'h' + m[1].length, html: inline(m[2]) };
+    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) return { tag: 'hr' };
+    if ((m = /^>\s?(.*)$/.exec(line))) return { tag: 'blockquote', html: inline(m[1]) };
+    if ((m = /^- \[([ xX])\]\s?(.*)$/.exec(line))) return { tag: 'task', checked: m[1] !== ' ', html: inline(m[2]) };
+    if ((m = /^[-*]\s+(.*)$/.exec(line))) return { tag: 'li', html: inline(m[1]) };
+    if ((m = /^(\d+)[.)]\s+(.*)$/.exec(line))) return { tag: 'oli', html: inline(m[2]) };
+    return { tag: 'div', html: inline(line) };
+}
+
+// Markdown source -> editor HTML. Consecutive list lines group into one list.
+function renderMd(src) {
+    const out = [];
+    let inCode = false, list = [], listTag = null;
+    const flush = () => {
+        if (listTag) {
+            out.push(listTag === 'ul' ? `<ul>${list.join('')}</ul>` : `<ol>${list.join('')}</ol>`);
+            list = []; listTag = null;
+        }
+    };
+    for (const line of src.split('\n')) {
+        if (line.trim() === '```') {
+            flush();
+            inCode = !inCode;
+            out.push(`<div>${esc(line)}</div>`);
+            continue;
+        }
+        if (inCode) { out.push(`<div>${esc(line)}</div>`); continue; }
+        const b = blockOf(line);
+        if (b.tag === 'li' || b.tag === 'oli' || b.tag === 'task') {
+            const want = b.tag === 'oli' ? 'ol' : 'ul';
+            if (listTag !== want) { flush(); listTag = want; }
+            list.push(b.tag === 'task'
+                ? `<li class="task"><input type="checkbox"${b.checked ? ' checked' : ''}> ${b.html}</li>`
+                : `<li>${b.html}</li>`);
+            continue;
+        }
+        flush();
+        switch (b.tag) {
+            case 'hr': out.push('<hr>'); break;
+            case 'blockquote': out.push(`<blockquote>${b.html}</blockquote>`); break;
+            default:
+                out.push(b.tag === 'div' ? `<div>${b.html}</div>` : `<${b.tag}>${b.html}</${b.tag}>`);
+        }
+    }
+    flush();
+    return out.join('');
+}
+
+// DOM (or an equivalent tree: {nodeType:3, textContent} / {nodeType:1,
+// tagName, classList, childNodes, getAttribute, alt}) -> raw markdown source.
+function nodeToSrc(node) {
+    if (node.nodeType === 3) return node.textContent;
+    const el = node;
+    const kids = () => [...el.childNodes].map(nodeToSrc).join('');
+    const has = (c) => el.classList && el.classList.contains(c);
+    switch (el.tagName) {
+        case 'H1': case 'H2': case 'H3': case 'H4': case 'H5': case 'H6':
+            return '#'.repeat(+el.tagName[1]) + ' ' + kids();
+        case 'BLOCKQUOTE': return '> ' + kids();
+        case 'UL': return [...el.childNodes].map(li => (has('task') || li.classList?.contains('task') ? nodeToSrc(li) : '- ' + [...li.childNodes].map(nodeToSrc).join(''))).join('\n');
+        case 'OL': return [...el.childNodes].map((li, i) => (i + 1) + '. ' + [...li.childNodes].map(nodeToSrc).join('')).join('\n');
+        case 'LI':
+            if (el.classList && el.classList.contains('task')) {
+                const box = [...el.childNodes].find(n => n.tagName === 'INPUT');
+                return '- [' + (box && box.checked ? 'x' : ' ') + '] ' +
+                    [...el.childNodes].filter(n => n.tagName !== 'INPUT').map(nodeToSrc).join('').replace(/^ /, '');
+            }
+            return kids();
+        case 'HR': return '---';
+        case 'STRONG': case 'B': return '**' + kids() + '**';
+        case 'EM': case 'I': return '_' + kids() + '_';
+        case 'S': case 'STRIKE': case 'DEL': return '~~' + kids() + '~~';
+        case 'CODE': return '`' + el.textContent + '`';
+        case 'A': return '[' + kids() + '](' + el.getAttribute('href') + ')';
+        case 'IMG': return '![' + (el.alt || '') + '](' + el.getAttribute('src') + ')';
+        case 'BR': return '';
+        default: return kids();
+    }
+}
+
+function mdOf(editor) {
+    return [...editor.childNodes].map(nodeToSrc).join('\n');
+}
+
+// --- live conversion -------------------------------------------------------
+
+function caretBlock(editor) {
+    let n = window.getSelection().anchorNode;
+    while (n && n !== editor) {
+        if (n.nodeType === 1 && /^(H[1-6]|BLOCKQUOTE|LI|DIV|P|PRE)$/.test(n.tagName)) return n;
+        n = n.parentNode;
+    }
+    return null;
+}
+
+// Odd number of ``` before the caret means the caret is inside a code block.
+function inCodeFence(editor) {
+    const sel = window.getSelection();
+    if (!sel.rangeCount) return false;
+    const r = document.createRange();
+    r.selectNodeContents(editor);
+    r.setEnd(sel.anchorNode, sel.anchorOffset);
+    return (r.toString().match(/```/g) || []).length % 2 === 1;
+}
+
+function placeCaret(el) {
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    r.collapse(false);
+    const s = window.getSelection();
+    s.removeAllRanges();
+    s.addRange(r);
+}
+
+function replaceWith(block, html) {
+    const t = document.createElement('template');
+    t.innerHTML = html;
+    const el = t.content.firstElementChild;
+    block.replaceWith(el);
+    placeCaret(el);
+    return el;
+}
+
+const INLINE_RES = [
+    [/!\[([^\]]*)\]\(([^)]+)\)/, m => ({ tag: 'img', attrs: { src: m[2], alt: m[1] } })],
+    [/\[([^\]]+)\]\(([^)]+)\)/, m => ({ tag: 'a', attrs: { href: m[2] }, text: m[1] })],
+    [/`([^`]+)`/, m => ({ tag: 'code', text: m[1] })],
+    [/\*\*([^*]+)\*\*/, m => ({ tag: 'strong', text: m[1] })],
+    [/~~([^~]+)~~/, m => ({ tag: 's', text: m[1] })],
+    [/_([^_]+)_/, m => ({ tag: 'em', text: m[1] })],
+];
+
+// Convert the first completed inline pattern (**bold**, `code`, ...) inside
+// the block into its rendered element. Returns true when something changed.
+function convertInline(block) {
+    for (const node of textNodes(block)) {
+        if (node.parentElement && /^(CODE|PRE)$/.test(node.parentElement.tagName)) continue;
+        for (const [re, make] of INLINE_RES) {
+            const m = re.exec(node.textContent);
+            if (!m) continue;
+            const before = node.splitText(m.index);
+            const hit = before.splitText(m[0].length);
+            const spec = make(m);
+            const el = document.createElement(spec.tag);
+            if (spec.attrs) for (const [k, v] of Object.entries(spec.attrs)) el.setAttribute(k, v);
+            if (spec.tag === 'img') { el.alt = spec.attrs.alt; } else { el.textContent = spec.text; }
+            before.replaceWith(el);
+            placeCaretAfter(el);
+            return true;
+        }
+    }
+    return false;
+}
+
+function textNodes(root) {
+    const out = [];
+    const walk = (n) => {
+        for (const c of n.childNodes) {
+            if (c.nodeType === 3) out.push(c);
+            else if (c.nodeType === 1) walk(c);
+        }
+    };
+    walk(root);
+    return out;
+}
+
+function placeCaretAfter(el) {
+    const r = document.createRange();
+    r.setStartAfter(el);
+    r.collapse(true);
+    const s = window.getSelection();
+    s.removeAllRanges();
+    s.addRange(r);
+}
+
+function convertBlock(block, editor) {
+    if (!block || !/^(DIV|P)$/.test(block.tagName)) return;
+    if (block.dataset.raw) { delete block.dataset.raw; }
+    const raw = [...block.childNodes].map(nodeToSrc).join('');
+    let m;
+    if ((m = /^(#{1,6})\s+(.*)$/.exec(raw))) {
+        replaceWith(block, `<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`);
+    } else if ((m = /^>\s?(.*)$/.exec(raw))) {
+        replaceWith(block, `<blockquote>${inline(m[1])}</blockquote>`);
+    } else if ((m = /^- \[([ xX])\]\s?(.*)$/.exec(raw))) {
+        wrapInList(block, editor, `<li class="task"><input type="checkbox"${m[1] !== ' ' ? ' checked' : ''}> ${inline(m[2])}</li>`, 'ul');
+    } else if ((m = /^[-*]\s+(.*)$/.exec(raw))) {
+        wrapInList(block, editor, `<li>${inline(m[1])}</li>`, 'ul');
+    } else if ((m = /^\d+[.)]\s+(.*)$/.exec(raw))) {
+        wrapInList(block, editor, `<li>${inline(m[1])}</li>`, 'ol');
+    } else if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(raw)) {
+        const t = document.createElement('template');
+        t.innerHTML = '<hr><div><br></div>';
+        const div = t.content.querySelector('div');
+        block.replaceWith(t.content);
+        placeCaret(div);
+    }
+}
+
+function wrapInList(block, editor, liHtml, tag) {
+    const prev = block.previousElementSibling;
+    const t = document.createElement('template');
+    t.innerHTML = liHtml;
+    const li = t.content.firstElementChild;
+    if (prev && prev.tagName === tag.toUpperCase()) {
+        prev.appendChild(li);
+        block.remove();
+    } else {
+        const list = document.createElement(tag);
+        list.appendChild(li);
+        block.replaceWith(list);
+    }
+    placeCaret(li);
+}
+
+function initEditor(editor, src) {
+    editor.innerHTML = renderMd(src.value) || '<div><br></div>';
+    const sync = () => { src.value = mdOf(editor); };
+    editor.addEventListener('input', () => {
+        editor.classList.toggle('empty', editor.textContent === '');
+        if (inCodeFence(editor)) { sync(); return; }
+        const block = caretBlock(editor);
+        if (block && !block.dataset.raw) convertBlock(block, editor);
+        const after = caretBlock(editor);
+        if (after) convertInline(after);
+        sync();
+    });
+    editor.addEventListener('change', (e) => {
+        if (e.target.type === 'checkbox') sync();
+    });
+    // Double-click a rendered block to edit its raw markdown again. The raw
+    // flag suppresses instant re-rendering until the text actually changes.
+    editor.addEventListener('dblclick', (e) => {
+        const el = e.target.closest('h1,h2,h3,h4,h5,h6,blockquote,ul,ol,hr');
+        if (!el || el === editor) return;
+        e.preventDefault();
+        const div = document.createElement('div');
+        div.textContent = nodeToSrc(el);
+        div.dataset.raw = '1';
+        el.replaceWith(div);
+        placeCaret(div);
+    });
+    editor.addEventListener('blur', sync);
+    const form = editor.closest('form');
+    if (form) form.addEventListener('submit', sync);
+    sync();
+}

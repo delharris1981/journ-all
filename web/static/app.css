@@ -221,7 +221,7 @@ body {
 .editor-pane {
     min-width: 0;
 }
-.editor-textarea {
+.editor-surface {
     width: 100%;
     min-height: 400px;
     padding: 1rem;
@@ -232,11 +232,18 @@ body {
     border-radius: 6px;
     background: var(--surface);
     color: var(--ink);
-    resize: vertical;
 }
-.editor-textarea:focus {
+.editor-surface:focus {
     outline: 2px solid var(--accent);
     outline-offset: -1px;
+}
+.editor-surface:empty::before,
+.editor-surface.empty::before {
+    content: attr(data-placeholder);
+    color: var(--ink-faint);
+}
+.editor-surface .task input {
+    margin-right: 0.35rem;
 }
 .preview-pane {
     padding: 1rem;

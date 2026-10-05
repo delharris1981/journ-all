@@ -12,15 +12,8 @@
     <div class="form-group">
         <label class="form-label" for="body">Body</label>
         <div class="toolbar" data-for="editor"></div>
-        <div class="editor">
-            <div class="editor-pane">
-                <textarea id="editor" name="body" class="editor-textarea" placeholder="Write..."
-                    hx-post="/preview" hx-trigger="input delay:300ms" hx-target="#preview" hx-swap="innerHTML">{{if .Entry}}{{.Entry.Body}}{{end}}</textarea>
-            </div>
-            <div class="editor-pane">
-                <div id="preview" class="preview-pane markdown"></div>
-            </div>
-        </div>
+        <div id="editor" class="editor-surface markdown" contenteditable="true" data-placeholder="Write..."></div>
+        <textarea id="body-src" name="body" hidden>{{if .Entry}}{{.Entry.Body}}{{end}}</textarea>
     </div>
     <div class="form-group">
         <label class="form-label" for="tags">Tags</label>
