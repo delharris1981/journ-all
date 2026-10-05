@@ -353,8 +353,15 @@ func (h *Handler) entryUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) entryDelete(w http.ResponseWriter, r *http.Request) {
 	userID := auth.GetUserID(r)
-	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	h.db.Exec("DELETE FROM entries WHERE id = ? AND user_id = ?", id, userID)
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid entry id", http.StatusBadRequest)
+		return
+	}
+	if _, err := h.db.Exec("DELETE FROM entries WHERE id = ? AND user_id = ?", id, userID); err != nil {
+		http.Error(w, "could not delete entry: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	http.Redirect(w, r, "/entries", http.StatusSeeOther)
 }
 
