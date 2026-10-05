@@ -139,6 +139,7 @@ function inline(s) {
     h = h.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     h = h.replace(/~~([^~]+)~~/g, '<s>$1</s>');
     h = h.replace(/_([^_]+)_/g, '<em>$1</em>');
+    h = h.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
     h = h.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">');
     h = h.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
     return h;
@@ -216,6 +217,8 @@ function nodeToSrc(node) {
             }
             return kids();
         case 'HR': return '---';
+        case 'PRE':
+            return '```\n' + el.textContent + '\n```';
         case 'STRONG': case 'B': return '**' + kids() + '**';
         case 'EM': case 'I': return '_' + kids() + '_';
         case 'S': case 'STRIKE': case 'DEL': return '~~' + kids() + '~~';
@@ -277,6 +280,7 @@ const INLINE_RES = [
     [/\*\*([^*]+)\*\*/, m => ({ tag: 'strong', text: m[1] })],
     [/~~([^~]+)~~/, m => ({ tag: 's', text: m[1] })],
     [/_([^_]+)_/, m => ({ tag: 'em', text: m[1] })],
+    [/\*([^*\n]+)\*/, m => ({ tag: 'em', text: m[1] })],
 ];
 
 // Convert the first completed inline pattern (**bold**, `code`, ...) inside
@@ -343,7 +347,42 @@ function convertBlock(block, editor) {
         const div = t.content.querySelector('div');
         block.replaceWith(t.content);
         placeCaret(div);
+    } else if (raw.trim() === '```') {
+        // Either the opening fence (search forward) or the closing one
+        // (search back): once both fences exist, wrap everything between
+        // (inclusive) into one rendered code block.
+        let open = null, close = null;
+        let el = block.previousElementSibling;
+        while (el) {
+            if (el.tagName === 'DIV' && nodeToSrc(el).trim() === '```') { open = el; break; }
+            el = el.previousElementSibling;
+        }
+        el = block.nextElementSibling;
+        while (el) {
+            if (el.tagName === 'DIV' && nodeToSrc(el).trim() === '```') { close = el; break; }
+            el = el.nextElementSibling;
+        }
+        if (!open && close) { open = block; }
+        if (!close && open) { close = block; }
+        if (!open || !close || open === close) return;
+        return wrapFencedRange(editor, open, close);
     }
+}
+
+function wrapFencedRange(editor, open, close) {
+    const inner = [];
+    let el = open.nextElementSibling;
+    while (el && el !== close) { inner.push(el); el = el.nextElementSibling; }
+    const code = inner.map(e => e.textContent).join('\n');
+    const t = document.createElement('template');
+    t.innerHTML = '<pre><code></code></pre><div><br></div>';
+    t.content.querySelector('code').textContent = code;
+    const pre = t.content.querySelector('pre');
+    const after = t.content.querySelector('div');
+    for (const e of inner) e.remove();
+    close.remove();
+    open.replaceWith(pre, after);
+    placeCaret(after);
 }
 
 function wrapInList(block, editor, liHtml, tag) {
@@ -380,7 +419,7 @@ function initEditor(editor, src) {
     // Double-click a rendered block to edit its raw markdown again. The raw
     // flag suppresses instant re-rendering until the text actually changes.
     editor.addEventListener('dblclick', (e) => {
-        const el = e.target.closest('h1,h2,h3,h4,h5,h6,blockquote,ul,ol,hr');
+        const el = e.target.closest('h1,h2,h3,h4,h5,h6,blockquote,ul,ol,hr,pre');
         if (!el || el === editor) return;
         e.preventDefault();
         const div = document.createElement('div');
