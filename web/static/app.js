@@ -328,8 +328,13 @@ function placeCaretAfter(el) {
 
 function convertBlock(block, editor) {
     if (!block || !/^(DIV|P)$/.test(block.tagName)) return;
-    if (block.dataset.raw) { delete block.dataset.raw; }
     const raw = [...block.childNodes].map(nodeToSrc).join('');
+    // A block reverted to raw markdown via double-click keeps its raw form
+    // only until its text actually changes, then it re-renders.
+    if (block.dataset.raw) {
+        if (raw === block.dataset.raw) return;
+        delete block.dataset.raw;
+    }
     let m;
     if ((m = /^(#{1,6})\s+(.*)$/.exec(raw))) {
         replaceWith(block, `<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`);
@@ -408,7 +413,7 @@ function initEditor(editor, src) {
         editor.classList.toggle('empty', editor.textContent === '');
         if (inCodeFence(editor)) { sync(); return; }
         const block = caretBlock(editor);
-        if (block && !block.dataset.raw) convertBlock(block, editor);
+        if (block) convertBlock(block, editor);
         const after = caretBlock(editor);
         if (after) convertInline(after);
         sync();
@@ -424,7 +429,7 @@ function initEditor(editor, src) {
         e.preventDefault();
         const div = document.createElement('div');
         div.textContent = nodeToSrc(el);
-        div.dataset.raw = '1';
+        div.dataset.raw = nodeToSrc(el);
         el.replaceWith(div);
         placeCaret(div);
     });
