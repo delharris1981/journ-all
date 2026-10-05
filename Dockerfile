@@ -13,6 +13,7 @@ WORKDIR /app
 COPY --from=build /server /app/server
 COPY --from=build /src/migrations /app/migrations
 COPY --from=build /src/web /app/web
+COPY --from=build /src/VERSION /app/VERSION
 VOLUME /data
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s \

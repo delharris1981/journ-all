@@ -1,0 +1,43 @@
+{{template "base" .}}
+{{define "content"}}
+<div class="page-header">
+    <h1 class="page-title">Admin</h1>
+</div>
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+
+<h2 class="page-title">Accounts</h2>
+<ul class="entry-list">
+    {{range .Users}}
+    <li class="entry-item">
+        <strong>{{.Email}}</strong>
+        {{if .IsAdmin}}<span class="tag">admin</span>{{end}}
+        {{if .Disabled}}<span class="tag">disabled</span>{{end}}
+        <form method="post" action="/admin/users/{{.ID}}/disabled" class="inline">
+            <button type="submit" class="btn">{{if .Disabled}}Enable{{else}}Disable{{end}}</button>
+        </form>
+    </li>
+    {{end}}
+</ul>
+
+<h2 class="page-title mt-3">Create user</h2>
+<form method="post" action="/admin/users" class="mt-2">
+    <div class="form-group">
+        <label class="form-label" for="email">Email</label>
+        <input class="form-input" type="email" id="email" name="email" required>
+    </div>
+    <div class="form-group">
+        <label class="form-label" for="password">Password (min 8 characters)</label>
+        <input class="form-input" type="password" id="password" name="password" required minlength="8">
+    </div>
+    <div class="form-group">
+        <label><input type="checkbox" name="is_admin" value="1"> Admin</label>
+    </div>
+    <button type="submit" class="btn btn-primary">Create user</button>
+</form>
+
+<h2 class="page-title mt-3">Signups</h2>
+<p class="muted">{{if .SignupsEnabled}}Signups are open.{{else}}Signups are disabled.{{end}}</p>
+<form method="post" action="/admin/signups" class="mt-2">
+    <button type="submit" class="btn">{{if .SignupsEnabled}}Disable signups{{else}}Enable signups{{end}}</button>
+</form>
+{{end}}

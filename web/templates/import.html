@@ -1,0 +1,16 @@
+{{template "base" .}}
+{{define "content"}}
+<div class="page-header">
+    <h1 class="page-title">Import</h1>
+</div>
+{{if .Message}}<p class="muted">{{.Message}}</p>{{end}}
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+<p class="muted">Upload a .zip containing one Markdown (.md) file per entry. The first "# Title" line becomes the entry title; otherwise the file name is used.</p>
+<form method="post" action="/import" enctype="multipart/form-data" class="mt-2">
+    <div class="form-group">
+        <label class="form-label" for="file">Zip file</label>
+        <input class="form-input" type="file" id="file" name="file" accept=".zip" required>
+    </div>
+    <button type="submit" class="btn btn-primary">Import</button>
+</form>
+{{end}}

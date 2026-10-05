@@ -47,7 +47,9 @@ func UserIDFromSession(db *sql.DB, token string) (int64, error) {
 	var userID int64
 	var expiresAt string
 	err := db.QueryRow(
-		"SELECT user_id, expires_at FROM sessions WHERE token = ?", token,
+		`SELECT s.user_id, s.expires_at FROM sessions s
+		 JOIN users u ON u.id = s.user_id
+		 WHERE s.token = ? AND u.disabled = 0`, token,
 	).Scan(&userID, &expiresAt)
 	if err != nil {
 		return 0, err
@@ -74,6 +76,12 @@ func Middleware(db *sql.DB, next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), UserIDKey, userID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func IsAdmin(db *sql.DB, userID int64) (bool, error) {
+	var isAdmin bool
+	err := db.QueryRow("SELECT is_admin FROM users WHERE id = ?", userID).Scan(&isAdmin)
+	return isAdmin, err
 }
 
 func GetUserID(r *http.Request) int64 {

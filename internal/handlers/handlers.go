@@ -1,11 +1,17 @@
 package handlers
 
 import (
+	"archive/zip"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"net/http"
+	"os"
+	"path"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +24,7 @@ type Handler struct {
 	db        *sql.DB
 	templates map[string]*template.Template
 	md        goldmark.Markdown
+	version   string
 }
 
 type Entry struct {
@@ -84,15 +91,27 @@ func buildMonth(first time.Time, entryDates map[string]bool, today string) []Cal
 }
 
 type PageData struct {
-	User     int64
-	Title    string
-	Error    string
-	Entries  []Entry
-	Entry    *Entry
-	Tags     []Tag
-	Query    string
-	Date     string
-	Calendar *CalendarData
+	User           int64
+	Title          string
+	Error          string
+	Message        string
+	Entries        []Entry
+	Entry          *Entry
+	Tags           []Tag
+	Query          string
+	Date           string
+	Calendar       *CalendarData
+	Version        string
+	IsAdmin        bool
+	Users          []UserRow
+	SignupsEnabled bool
+}
+
+type UserRow struct {
+	ID       int64
+	Email    string
+	IsAdmin  bool
+	Disabled bool
 }
 
 func New(db *sql.DB) *Handler {
@@ -107,7 +126,7 @@ func New(db *sql.DB) *Handler {
 		},
 	}
 
-	pages := []string{"home", "entries", "entry_edit", "entry_view", "calendar", "tags", "tag_entries", "login", "signup"}
+	pages := []string{"home", "entries", "entry_edit", "entry_view", "calendar", "tags", "tag_entries", "login", "signup", "import", "admin"}
 	templates := make(map[string]*template.Template)
 	for _, page := range pages {
 		t, err := template.New("base.html").Funcs(funcMap).ParseFiles("web/templates/base.html", "web/templates/"+page+".html")
@@ -116,7 +135,13 @@ func New(db *sql.DB) *Handler {
 		}
 		templates[page] = t
 	}
-	return &Handler{db: db, templates: templates, md: md}
+	version := "dev"
+	if b, err := os.ReadFile("VERSION"); err == nil {
+		if v := strings.TrimSpace(string(b)); v != "" {
+			version = v
+		}
+	}
+	return &Handler{db: db, templates: templates, md: md, version: version}
 }
 
 func (h *Handler) Routes() http.Handler {
@@ -148,11 +173,21 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("GET /tags/{tag}", auth.Middleware(h.db, http.HandlerFunc(h.tagEntries)))
 	mux.Handle("GET /export", auth.Middleware(h.db, http.HandlerFunc(h.export)))
 	mux.Handle("POST /preview", auth.Middleware(h.db, http.HandlerFunc(h.preview)))
+	mux.Handle("GET /import", auth.Middleware(h.db, http.HandlerFunc(h.importPage)))
+	mux.Handle("POST /import", auth.Middleware(h.db, http.HandlerFunc(h.importZip)))
+	mux.Handle("GET /admin", auth.Middleware(h.db, http.HandlerFunc(h.adminPage)))
+	mux.Handle("POST /admin/users", auth.Middleware(h.db, http.HandlerFunc(h.adminCreateUser)))
+	mux.Handle("POST /admin/users/{id}/disabled", auth.Middleware(h.db, http.HandlerFunc(h.adminToggleDisabled)))
+	mux.Handle("POST /admin/signups", auth.Middleware(h.db, http.HandlerFunc(h.adminToggleSignups)))
 	return mux
 }
 
 func (h *Handler) render(w http.ResponseWriter, page string, data PageData) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	data.Version = h.version
+	if data.User != 0 {
+		data.IsAdmin, _ = auth.IsAdmin(h.db, data.User)
+	}
 	err := h.templates[page].ExecuteTemplate(w, "base.html", data)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -174,9 +209,14 @@ func (h *Handler) loginPost(w http.ResponseWriter, r *http.Request) {
 
 	var id int64
 	var hash string
-	err := h.db.QueryRow("SELECT id, password_hash FROM users WHERE email = ?", email).Scan(&id, &hash)
+	var disabled bool
+	err := h.db.QueryRow("SELECT id, password_hash, disabled FROM users WHERE email = ?", email).Scan(&id, &hash, &disabled)
 	if err != nil || !auth.CheckPassword(hash, password) {
 		h.render(w, "login", PageData{Title: "Log in", Error: "Invalid email or password"})
+		return
+	}
+	if disabled {
+		h.render(w, "login", PageData{Title: "Log in", Error: "This account has been disabled"})
 		return
 	}
 
@@ -218,16 +258,29 @@ func (h *Handler) signupPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	enabled, _ := h.signupsEnabled()
+	if !enabled {
+		h.render(w, "signup", PageData{Title: "Sign up", Error: "Signups are currently disabled"})
+		return
+	}
+
 	hash, err := auth.HashPassword(password)
 	if err != nil {
 		h.render(w, "signup", PageData{Title: "Sign up", Error: "Could not hash password"})
 		return
 	}
 
+	var userCount int
+	h.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&userCount)
+	isAdmin := 0
+	if userCount == 0 {
+		isAdmin = 1 // first account administers the app
+	}
+
 	var id int64
 	err = h.db.QueryRow(
-		"INSERT INTO users (email, password_hash) VALUES (?, ?) RETURNING id",
-		email, hash,
+		"INSERT INTO users (email, password_hash, is_admin) VALUES (?, ?, ?) RETURNING id",
+		email, hash, isAdmin,
 	).Scan(&id)
 	if err != nil {
 		h.render(w, "signup", PageData{Title: "Sign up", Error: "Email already registered"})
@@ -465,7 +518,7 @@ func (h *Handler) export(w http.ResponseWriter, r *http.Request) {
 	userID := auth.GetUserID(r)
 	format := r.URL.Query().Get("format")
 	if format == "" {
-		format = "json"
+		format = "zip"
 	}
 
 	entries, _ := h.getEntries(userID, "")
@@ -481,9 +534,241 @@ func (h *Handler) export(w http.ResponseWriter, r *http.Request) {
 		for _, e := range entries {
 			fmt.Fprintf(w, "# %s\n\n%s\n\n---\n\n", e.Title, e.Body)
 		}
+	case "zip", "":
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Content-Disposition", "attachment; filename=journall-export.zip")
+		h.writeZip(w, entries)
 	default:
 		http.Error(w, "Invalid format", http.StatusBadRequest)
 	}
+}
+
+var slugRe = regexp.MustCompile(`[^a-z0-9]+`)
+
+func slugify(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = slugRe.ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-")
+	if len(s) > 60 {
+		s = s[:60]
+	}
+	return s
+}
+
+// writeZip writes one Markdown file per entry.
+func (h *Handler) writeZip(w io.Writer, entries []Entry) error {
+	zw := zip.NewWriter(w)
+	defer zw.Close()
+	used := map[string]int{}
+	for _, e := range entries {
+		name := slugify(e.Title)
+		if name == "" {
+			name = fmt.Sprintf("entry-%d", e.ID)
+		}
+		used[name]++
+		filename := name
+		if used[name] > 1 {
+			filename = fmt.Sprintf("%s-%d", name, used[name])
+		}
+		if !e.CreatedAt.IsZero() {
+			filename = e.CreatedAt.Format("2006-01-02") + "-" + filename
+		}
+		f, err := zw.Create(filename + ".md")
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(f, "# %s\n\n%s\n", e.Title, e.Body)
+	}
+	return nil
+}
+
+func (h *Handler) importPage(w http.ResponseWriter, r *http.Request) {
+	userID := auth.GetUserID(r)
+	msg := ""
+	if n := r.URL.Query().Get("imported"); n != "" {
+		msg = fmt.Sprintf("Imported %s file(s).", n)
+	}
+	h.render(w, "import", PageData{User: userID, Title: "Import", Message: msg})
+}
+
+func (h *Handler) importZip(w http.ResponseWriter, r *http.Request) {
+	userID := auth.GetUserID(r)
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		h.render(w, "import", PageData{User: userID, Title: "Import", Error: "Could not read upload"})
+		return
+	}
+	f, _, err := r.FormFile("file")
+	if err != nil {
+		h.render(w, "import", PageData{User: userID, Title: "Import", Error: "Choose a .zip file"})
+		return
+	}
+	defer f.Close()
+	data, err := io.ReadAll(f)
+	if err != nil {
+		h.render(w, "import", PageData{User: userID, Title: "Import", Error: "Could not read file"})
+		return
+	}
+	n, err := h.importEntries(userID, data)
+	if err != nil {
+		h.render(w, "import", PageData{User: userID, Title: "Import", Error: err.Error()})
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/import?imported=%d", n), http.StatusSeeOther)
+}
+
+// importEntries imports every .md file in a zip as its own entry. The first
+// '# ' line becomes the title when present; otherwise the filename does.
+func (h *Handler) importEntries(userID int64, zipData []byte) (int, error) {
+	zr, err := zip.NewReader(strings.NewReader(string(zipData)), int64(len(zipData)))
+	if err != nil {
+		return 0, fmt.Errorf("not a valid zip file")
+	}
+	n := 0
+	for _, f := range zr.File {
+		if f.FileInfo().IsDir() || !strings.HasSuffix(strings.ToLower(f.Name), ".md") {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
+		b, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			continue
+		}
+		title, body := titleAndBody(string(b))
+		if title == "" {
+			base := path.Base(f.Name)
+			title = strings.TrimSuffix(base, filepath.Ext(base))
+		}
+		if _, err := h.db.Exec(
+			"INSERT INTO entries (user_id, title, body) VALUES (?, ?, ?)",
+			userID, title, body,
+		); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
+func titleAndBody(content string) (string, string) {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	i := strings.Index(content, "\n")
+	first, rest := content, ""
+	if i >= 0 {
+		first, rest = content[:i], strings.TrimLeft(content[i+1:], "\n")
+	}
+	if strings.HasPrefix(first, "# ") {
+		return strings.TrimSpace(first[2:]), rest
+	}
+	return "", content
+}
+
+func (h *Handler) adminPage(w http.ResponseWriter, r *http.Request) {
+	userID := auth.GetUserID(r)
+	if ok, _ := auth.IsAdmin(h.db, userID); !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	rows, err := h.db.Query("SELECT id, email, is_admin, disabled FROM users ORDER BY id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	var users []UserRow
+	for rows.Next() {
+		var u UserRow
+		if err := rows.Scan(&u.ID, &u.Email, &u.IsAdmin, &u.Disabled); err == nil {
+			users = append(users, u)
+		}
+	}
+	enabled, _ := h.signupsEnabled()
+	h.render(w, "admin", PageData{User: userID, Title: "Admin", Users: users, SignupsEnabled: enabled})
+}
+
+func (h *Handler) adminCreateUser(w http.ResponseWriter, r *http.Request) {
+	userID := auth.GetUserID(r)
+	if ok, _ := auth.IsAdmin(h.db, userID); !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	email := strings.TrimSpace(r.FormValue("email"))
+	password := r.FormValue("password")
+	isAdmin := 0
+	if r.FormValue("is_admin") != "" {
+		isAdmin = 1
+	}
+	if email == "" || len(password) < 8 {
+		h.adminError(w, r, userID, "Email required and password must be at least 8 characters")
+		return
+	}
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		h.adminError(w, r, userID, "Could not create user")
+		return
+	}
+	if _, err := h.db.Exec(
+		"INSERT INTO users (email, password_hash, is_admin) VALUES (?, ?, ?)",
+		email, hash, isAdmin,
+	); err != nil {
+		h.adminError(w, r, userID, "Email already registered")
+		return
+	}
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+func (h *Handler) adminError(w http.ResponseWriter, r *http.Request, userID int64, msg string) {
+	rows, _ := h.db.Query("SELECT id, email, is_admin, disabled FROM users ORDER BY id")
+	defer rows.Close()
+	var users []UserRow
+	for rows.Next() {
+		var u UserRow
+		if err := rows.Scan(&u.ID, &u.Email, &u.IsAdmin, &u.Disabled); err == nil {
+			users = append(users, u)
+		}
+	}
+	enabled, _ := h.signupsEnabled()
+	h.render(w, "admin", PageData{User: userID, Title: "Admin", Users: users, SignupsEnabled: enabled, Error: msg})
+}
+
+func (h *Handler) adminToggleDisabled(w http.ResponseWriter, r *http.Request) {
+	userID := auth.GetUserID(r)
+	if ok, _ := auth.IsAdmin(h.db, userID); !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if id != userID { // admins cannot lock themselves out
+		h.db.Exec("UPDATE users SET disabled = CASE disabled WHEN 0 THEN 1 ELSE 0 END WHERE id = ?", id)
+	}
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+func (h *Handler) adminToggleSignups(w http.ResponseWriter, r *http.Request) {
+	userID := auth.GetUserID(r)
+	if ok, _ := auth.IsAdmin(h.db, userID); !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	enabled, _ := h.signupsEnabled()
+	v := "0"
+	if !enabled {
+		v = "1"
+	}
+	h.db.Exec("INSERT INTO settings (key, value) VALUES ('signups_enabled', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", v)
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+func (h *Handler) signupsEnabled() (bool, error) {
+	var v string
+	err := h.db.QueryRow("SELECT value FROM settings WHERE key = 'signups_enabled'").Scan(&v)
+	if err != nil {
+		return true, err
+	}
+	return v == "1", nil
 }
 
 func (h *Handler) preview(w http.ResponseWriter, r *http.Request) {

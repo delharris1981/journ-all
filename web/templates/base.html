@@ -29,6 +29,8 @@
             <a href="/calendar">Calendar</a>
             <a href="/tags">Tags</a>
             <a href="/export">Export</a>
+            <a href="/import">Import</a>
+            {{if .IsAdmin}}<a href="/admin">Admin</a>{{end}}
             <form method="post" action="/logout" class="inline">
                 <button type="submit" class="link">Log out</button>
             </form>
@@ -41,6 +43,7 @@
     <main class="content">
         {{template "content" .}}
     </main>
+    <footer class="footer">Journ-all v{{.Version}}</footer>
     <script src="/static/app.js"></script>
 </body>
 </html>

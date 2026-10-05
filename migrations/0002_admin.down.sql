@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS settings;
+ALTER TABLE users DROP COLUMN disabled;
+ALTER TABLE users DROP COLUMN is_admin;

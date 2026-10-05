@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-10-05
+### Added
+- Version number shown in the app footer
+- Export now defaults to a zip of one Markdown file per entry (JSON and single-file Markdown still available via `?format=`)
+- Import page accepts a zip of separate .md files, one entry per file
+- Admin panel: create users, enable/disable accounts, and toggle public signups; the first account is admin
+### Changed
+- Markdown formatting styles (headings H1-H6, tables, code, quotes, lists) now use theme colours and fonts
+- Disabled accounts can no longer log in, and active sessions are invalidated
+
 ## [1.3.0] - 2026-10-05
 ### Added
 - Clickable calendar: each day links to the entries for that date, with an "All entries" way back
