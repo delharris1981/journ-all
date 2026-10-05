@@ -237,7 +237,21 @@ function mdOf(editor) {
 // --- live conversion -------------------------------------------------------
 
 function caretBlock(editor) {
-    let n = window.getSelection().anchorNode;
+    const sel = window.getSelection();
+    let n = sel.anchorNode;
+    if (!n) return null;
+    // Selection may be anchored on the editor itself; look at the
+    // children adjacent to the caret offset (prefer the one with content,
+    // since the caret-at-boundary case lands between two blocks).
+    if (n === editor) {
+        const r = sel.rangeCount ? sel.getRangeAt(0) : null;
+        const i = r ? r.startOffset : 0;
+        const at = editor.childNodes[i];
+        const prev = editor.childNodes[i - 1];
+        n = (at && at.nodeType === 1 && at.textContent !== '') ? at
+          : (prev && prev.nodeType === 1) ? prev : at || prev || null;
+        if (!n) return null;
+    }
     while (n && n !== editor) {
         if (n.nodeType === 1 && /^(H[1-6]|BLOCKQUOTE|LI|DIV|P|PRE)$/.test(n.tagName)) return n;
         n = n.parentNode;
@@ -409,10 +423,36 @@ function wrapInList(block, editor, liHtml, tag) {
 function initEditor(editor, src) {
     editor.innerHTML = renderMd(src.value) || '<div><br></div>';
     const sync = () => { src.value = mdOf(editor); };
+    // Enter inside a rendered block (h2, blockquote, pre, ...) would keep
+    // typing into that block, so end the block and start a fresh raw div.
+    editor.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' || e.shiftKey) return;
+        const block = caretBlock(editor);
+        if (!block || /^(DIV|P|LI)$/.test(block.tagName)) return;
+        e.preventDefault();
+        const div = document.createElement('div');
+        div.innerHTML = '<br>';
+        block.after(div);
+        placeCaret(div);
+        sync();
+    });
     editor.addEventListener('input', () => {
         editor.classList.toggle('empty', editor.textContent === '');
         if (inCodeFence(editor)) { sync(); return; }
-        const block = caretBlock(editor);
+        let block = caretBlock(editor);
+        if (!block) {
+            // Typing can land as a bare text node directly under the
+            // editor (no DIV/P/Hn ancestor); wrap such nodes so they can
+            // be converted like any other block.
+            for (const node of [...editor.childNodes]) {
+                if (node.nodeType === 3) {
+                    const div = document.createElement('div');
+                    editor.insertBefore(div, node);
+                    div.appendChild(node);
+                }
+            }
+            block = caretBlock(editor);
+        }
         if (block) convertBlock(block, editor);
         // A raw-edited block the caret has left (e.g. Enter moved it to a
         // new line) must not stay raw forever: re-render it regardless of
