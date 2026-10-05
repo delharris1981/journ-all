@@ -9,6 +9,16 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/app.css">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script>
+        // Set the theme before first paint to avoid a flash of the wrong one.
+        (function () {
+            var t = localStorage.getItem('theme');
+            if (t !== 'dark' && t !== 'light') {
+                t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            }
+            document.documentElement.dataset.theme = t;
+        })();
+    </script>
 </head>
 <body>
     {{if .User}}
@@ -22,8 +32,11 @@
             <form method="post" action="/logout" class="inline">
                 <button type="submit" class="link">Log out</button>
             </form>
+            <button type="button" id="theme-toggle" class="theme-toggle" title="Toggle light/dark theme">Theme</button>
         </div>
     </nav>
+    {{else}}
+    <button type="button" id="theme-toggle" class="theme-toggle theme-toggle-floating" title="Toggle light/dark theme">Theme</button>
     {{end}}
     <main class="content">
         {{template "content" .}}

@@ -91,6 +91,7 @@ type PageData struct {
 	Entry    *Entry
 	Tags     []Tag
 	Query    string
+	Date     string
 	Calendar *CalendarData
 }
 
@@ -276,9 +277,23 @@ func (h *Handler) home(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) entries(w http.ResponseWriter, r *http.Request) {
 	userID := auth.GetUserID(r)
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	date := r.URL.Query().Get("date")
 	entries, err := h.getEntries(userID, query)
 	if err != nil {
 		entries = []Entry{}
+	}
+	if date != "" {
+		filtered := entries[:0]
+		for _, e := range entries {
+			if e.CreatedAt.Format("2006-01-02") == date {
+				filtered = append(filtered, e)
+			}
+		}
+		entries = filtered
+	}
+	if date != "" {
+		h.render(w, "entries", PageData{User: userID, Title: "Entries for " + date, Entries: entries, Query: query, Date: date})
+		return
 	}
 	h.render(w, "entries", PageData{User: userID, Title: "Entries", Entries: entries, Query: query})
 }

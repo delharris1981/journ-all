@@ -13,6 +13,19 @@
     --sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
+[data-theme="dark"] {
+    --paper: #141311;
+    --surface: #1E1D1A;
+    --ink: #EDEAE3;
+    --ink-soft: #A8A39A;
+    --ink-faint: #6E6A63;
+    --accent: #6FA598;
+    --accent-hover: #8ABCB0;
+    --accent-soft: #22302C;
+    --line: #33312B;
+    --danger: #D97A72;
+}
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html { font-size: 16px; }
 body {
@@ -342,7 +355,12 @@ body {
     padding: 0.75rem;
     min-height: 80px;
     font-size: 0.875rem;
+    color: var(--ink);
+    text-decoration: none;
+    display: block;
+    transition: background 0.15s;
 }
+.calendar-day:hover { background: var(--accent-soft); }
 .calendar-day.other-month {
     background: var(--paper);
     color: var(--ink-faint);
@@ -375,6 +393,23 @@ body {
     font-weight: 500;
     min-width: 8ch;
     text-align: center;
+}
+
+.theme-toggle {
+    padding: 0.25rem 0.75rem;
+    font-size: 0.8125rem;
+    font-family: var(--sans);
+    color: var(--ink-soft);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    cursor: pointer;
+}
+.theme-toggle:hover { color: var(--ink); border-color: var(--ink-faint); }
+.theme-toggle-floating {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
 }
 
 .tag-cloud {

@@ -10,8 +10,8 @@
 
 ## Features for verion bump v1.3.0
 
-- a Clickable calendar to show my enteries for that day.
-- light theme and dark theme selection.
+- [x] a Clickable calendar to show my enteries for that day.
+- [x] light theme and dark theme selection.
 
 ## Features for version bump 1.4.0
 

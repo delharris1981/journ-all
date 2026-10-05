@@ -2,6 +2,20 @@ document.body.addEventListener('htmx:configRequest', function(evt) {
     evt.detail.headers['X-Requested-With'] = 'XMLHttpRequest';
 });
 
+// Light/dark theme toggle, persisted across visits.
+document.addEventListener('DOMContentLoaded', function() {
+    const btn = document.getElementById('theme-toggle');
+    if (!btn) return;
+    const label = () => { btn.textContent = document.documentElement.dataset.theme === 'dark' ? 'Dark' : 'Light'; };
+    label();
+    btn.addEventListener('click', function() {
+        const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+        document.documentElement.dataset.theme = next;
+        localStorage.setItem('theme', next);
+        label();
+    });
+});
+
 document.body.addEventListener('htmx:responseError', function(evt) {
     console.error('htmx error', evt.detail);
 });

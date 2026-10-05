@@ -1,9 +1,10 @@
 {{template "base" .}}
 {{define "content"}}
 <div class="page-header">
-    <h1 class="page-title">Entries</h1>
+    <h1 class="page-title">{{if .Date}}Entries for {{.Date}}{{else}}Entries{{end}}</h1>
     <a href="/entries/new" class="btn btn-primary">Write</a>
 </div>
+{{if .Date}}<p class="mb-2"><a href="/entries">&larr; All entries</a></p>{{end}}
 <form class="search-form" method="get" action="/entries">
     <input type="search" name="q" value="{{.Query}}" placeholder="Search entries..." class="form-input search-input"
         hx-get="/entries" hx-trigger="input delay:300ms, search" hx-target="#entries-list" hx-swap="innerHTML">
