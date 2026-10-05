@@ -414,6 +414,14 @@ function initEditor(editor, src) {
         if (inCodeFence(editor)) { sync(); return; }
         const block = caretBlock(editor);
         if (block) convertBlock(block, editor);
+        // A raw-edited block the caret has left (e.g. Enter moved it to a
+        // new line) must not stay raw forever: re-render it regardless of
+        // whether its text changed.
+        for (const el of editor.querySelectorAll('[data-raw]')) {
+            if (el === block) continue;
+            delete el.dataset.raw;
+            convertBlock(el, editor);
+        }
         const after = caretBlock(editor);
         if (after) convertInline(after);
         sync();
@@ -433,7 +441,13 @@ function initEditor(editor, src) {
         el.replaceWith(div);
         placeCaret(div);
     });
-    editor.addEventListener('blur', sync);
+    editor.addEventListener('blur', () => {
+        for (const el of editor.querySelectorAll('[data-raw]')) {
+            delete el.dataset.raw;
+            convertBlock(el, editor);
+        }
+        sync();
+    });
     const form = editor.closest('form');
     if (form) form.addEventListener('submit', sync);
     sync();
