@@ -188,6 +188,7 @@ func (h *Handler) render(w http.ResponseWriter, page string, data PageData) {
 	if data.User != 0 {
 		data.IsAdmin, _ = auth.IsAdmin(h.db, data.User)
 	}
+	data.SignupsEnabled, _ = h.signupsEnabled()
 	err := h.templates[page].ExecuteTemplate(w, "base.html", data)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

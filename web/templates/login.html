@@ -14,6 +14,6 @@
         </div>
         <button type="submit" class="btn btn-primary">Log in</button>
     </form>
-    <p class="auth-alt">No account? <a href="/signup">Sign up</a></p>
+    {{if .SignupsEnabled}}<p class="auth-alt">No account? <a href="/signup">Sign up</a></p>{{end}}
 </div>
 {{end}}
