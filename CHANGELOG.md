@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+### Changed
+- Search now uses an FTS5 index instead of `LIKE '%q%'`, so it stays fast as the collection grows and understands word prefixes (`"loa"*`) and quoted phrases
+- Search matches whole words rather than substrings: `loaf` finds "Rye loaf", `af` no longer matches it. A search that FTS5 cannot parse (a stray quote, `AND` on its own, or a hyphenated word like `e-mail`) falls back to the old substring scan rather than erroring
+- The admin page reports failures instead of showing success: a failed user create, disable, or signup toggle now shows an error, and a failed user list load renders the page with the message instead of a 500
+
+### Added
+- Tests covering the migrations themselves, including that an existing database's entries are backfilled into the search index on upgrade
+
 ## [1.4.1] - 2026-10-09
 ### Fixed
 - Date filter on the entries page silently matched nothing for any date with more than 100 newer entries — filtering happened after the newest 100 entries were fetched. It now filters in the database, so the limit applies to the matching entries

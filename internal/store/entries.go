@@ -2,9 +2,12 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"modernc.org/sqlite"
 )
 
 // sqliteTimeFormat is how SQLite renders datetime('now') values, which is
@@ -50,7 +53,67 @@ func (f Filters) limit() int {
 
 // GetEntries returns the user's entries matching the filters, newest first,
 // each with its tags hydrated.
+//
+// A text query goes through the FTS5 index. FTS5 query syntax is close enough
+// to plain text that ordinary searches just work, but a stray quote or
+// operator ("AND", "NEAR/", an unbalanced paren) is a syntax error, and SQLite
+// would fail the whole request. Rather than 500 on that, fall back to the
+// substring scan the LIKE path used to do.
 func (s *Store) GetEntries(userID int64, f Filters) ([]Entry, error) {
+	entries, err := s.listEntries(userID, f, true)
+	if err != nil && f.Query != "" && isSyntaxError(err) {
+		entries, err = s.listEntries(userID, f, false)
+	}
+	if err != nil {
+		return nil, err
+	}
+	s.hydrateTags(entries)
+	return entries, nil
+}
+
+// ftsSyntaxErrors are the messages SQLite uses for a MATCH expression it
+// cannot make sense of. Each one is triggered by something an ordinary person
+// types into a search box, and the LIKE fallback can still answer all of them:
+//
+//	"fts5: syntax error"      bare AND/OR/NOT/NEAR, unbalanced parens
+//	"unrecognized token"      an unknown query prefix such as : or ^
+//	"unterminated string"     an odd number of double quotes
+//	"unknown special query"   a leading *, e.g. "*thing"
+//	"no such column"          the column-filter form, which ordinary words hit
+//	                          constantly: "e-mail" parses as column "mail",
+//	                          "co-op" as "op", "col:value" as "col"
+var ftsSyntaxErrors = []string{
+	"fts5: syntax error",
+	"unrecognized token",
+	"unterminated string",
+	"unknown special query",
+	"no such column",
+}
+
+// isSyntaxError reports whether err is a malformed MATCH expression, which is
+// the only class of failure the LIKE fallback can rescue. Anything else — a
+// closed database, a missing index table — is worth surfacing.
+//
+// modernc.org/sqlite reports errors as *sqlite.Error carrying SQLite's numeric
+// code rather than as one of the database/sql sentinels, and the code is a
+// generic SQLITE_ERROR for all of these, so matching is on the message.
+func isSyntaxError(err error) bool {
+	var serr *sqlite.Error
+	if !errors.As(err, &serr) {
+		return false
+	}
+	msg := strings.ToLower(serr.Error())
+	for _, m := range ftsSyntaxErrors {
+		if strings.Contains(msg, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// listEntries runs the entry query. When useFTS is false a text query falls
+// back to a LIKE substring scan instead of the search index.
+func (s *Store) listEntries(userID int64, f Filters, useFTS bool) ([]Entry, error) {
 	var where []string
 	var args []any
 
@@ -58,9 +121,14 @@ func (s *Store) GetEntries(userID int64, f Filters) ([]Entry, error) {
 	args = append(args, userID)
 
 	if f.Query != "" {
-		where = append(where, "(e.title LIKE ? OR e.body LIKE ?)")
-		like := "%" + f.Query + "%"
-		args = append(args, like, like)
+		if useFTS {
+			where = append(where, "e.id IN (SELECT rowid FROM entries_fts WHERE entries_fts MATCH ?)")
+			args = append(args, f.Query)
+		} else {
+			where = append(where, "(e.title LIKE ? OR e.body LIKE ?)")
+			like := "%" + f.Query + "%"
+			args = append(args, like, like)
+		}
 	}
 	if f.Tag != "" {
 		where = append(where, `EXISTS (
@@ -85,12 +153,7 @@ func (s *Store) GetEntries(userID int64, f Filters) ([]Entry, error) {
 	`, strings.Join(where, " AND "))
 	args = append(args, f.limit())
 
-	entries, err := s.queryEntries(q, args...)
-	if err != nil {
-		return nil, err
-	}
-	s.hydrateTags(entries)
-	return entries, nil
+	return s.queryEntries(q, args...)
 }
 
 // GetEntry returns a single entry owned by userID.

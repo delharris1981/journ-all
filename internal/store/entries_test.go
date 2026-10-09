@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -32,36 +33,15 @@ func newTestStore(t *testing.T) (*Store, int64, int64) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	schema := []string{
-		`CREATE TABLE users (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			email TEXT NOT NULL UNIQUE,
-			password_hash TEXT NOT NULL,
-			created_at TEXT NOT NULL DEFAULT (datetime('now'))
-		)`,
-		`CREATE TABLE entries (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-			title TEXT NOT NULL DEFAULT '',
-			body TEXT NOT NULL DEFAULT '',
-			created_at TEXT NOT NULL DEFAULT (datetime('now')),
-			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-		)`,
-		`CREATE TABLE tags (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-			name TEXT NOT NULL,
-			UNIQUE(user_id, name)
-		)`,
-		`CREATE TABLE entry_tags (
-			entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
-			tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-			PRIMARY KEY (entry_id, tag_id)
-		)`,
-	}
-	for _, s := range schema {
-		if _, err := db.Exec(s); err != nil {
-			t.Fatalf("schema: %v", err)
+	// Read the real migrations rather than restating the schema, so a column
+	// or trigger added in migrations/ is covered by these tests automatically.
+	for _, m := range []string{"0001_init.up.sql", "0003_fts.up.sql"} {
+		b, err := os.ReadFile(filepath.Join("..", "..", "migrations", m))
+		if err != nil {
+			t.Fatalf("read migration %s: %v", m, err)
+		}
+		if _, err := db.Exec(string(b)); err != nil {
+			t.Fatalf("apply migration %s: %v", m, err)
 		}
 	}
 
@@ -213,6 +193,175 @@ func TestGetEntriesLimit(t *testing.T) {
 	got, _ = s.GetEntries(userID, Filters{Limit: -1})
 	if len(got) != 5 {
 		t.Errorf("Limit -1 returned %d entries, want 5", len(got))
+	}
+}
+
+// The index is an external-content FTS5 table, so SQLite does not maintain it
+// for us — the migration's triggers are the only thing keeping it correct.
+func TestSearchIndexFollowsWrites(t *testing.T) {
+	s, userID, _ := newTestStore(t)
+
+	id := seed(t, s, userID, "Sourdough", "starter", "2024-03-01 09:00:00")
+
+	// Seeded via raw INSERT, so the AFTER INSERT trigger must have indexed it.
+	got, err := s.GetEntries(userID, Filters{Query: "sourdough"})
+	if err != nil {
+		t.Fatalf("GetEntries: %v", err)
+	}
+	if want := []string{"Sourdough"}; !equal(titles(got), want) {
+		t.Fatalf("after insert = %v, want %v", titles(got), want)
+	}
+
+	// An update must remove the old text from the index, not just add the new.
+	if _, err := s.UpdateEntry(userID, id, "Rye loaf", "starter"); err != nil {
+		t.Fatalf("UpdateEntry: %v", err)
+	}
+	if got, _ := s.GetEntries(userID, Filters{Query: "sourdough"}); len(got) != 0 {
+		t.Errorf("stale title still matches after update: %v", titles(got))
+	}
+	if got, _ := s.GetEntries(userID, Filters{Query: "rye"}); len(got) != 1 {
+		t.Errorf("new title not indexed after update: %v", titles(got))
+	}
+
+	// And a delete must drop the row entirely.
+	if _, err := s.DeleteEntry(userID, id); err != nil {
+		t.Fatalf("DeleteEntry: %v", err)
+	}
+	if got, _ := s.GetEntries(userID, Filters{Query: "rye"}); len(got) != 0 {
+		t.Errorf("deleted entry still matches: %v", titles(got))
+	}
+}
+
+// A user deletion cascades to entries. Triggers do not fire for cascaded
+// deletes on some paths, which would leave an orphan row in the index matching
+// a nonexistent entry — worth pinning down.
+func TestSearchIndexClearedByUserCascade(t *testing.T) {
+	s, userID, _ := newTestStore(t)
+	seed(t, s, userID, "Orphan candidate", "body", "2024-03-01 09:00:00")
+
+	if _, err := s.db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		t.Fatalf("enable foreign keys: %v", err)
+	}
+	if _, err := s.db.Exec("DELETE FROM users WHERE id = ?", userID); err != nil {
+		t.Fatalf("delete user: %v", err)
+	}
+
+	var n int
+	if err := s.db.QueryRow("SELECT count(*) FROM entries_fts").Scan(&n); err != nil {
+		t.Fatalf("count fts: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("%d orphaned index rows survived the user cascade", n)
+	}
+}
+
+// FTS5 tokenizes on word boundaries, so "loaf" finds "Rye loaf" but "af"
+// does not. The LIKE fallback would have matched the substring, so pin the
+// token behaviour down rather than leaving it implicit.
+func TestSearchMatchesWholeWords(t *testing.T) {
+	s, userID, _ := newTestStore(t)
+	seed(t, s, userID, "Rye loaf", "baking notes", "2024-03-01 09:00:00")
+
+	got, err := s.GetEntries(userID, Filters{Query: "loaf"})
+	if err != nil {
+		t.Fatalf("GetEntries: %v", err)
+	}
+	if want := []string{"Rye loaf"}; !equal(titles(got), want) {
+		t.Errorf("word query = %v, want %v", titles(got), want)
+	}
+
+	if got, _ := s.GetEntries(userID, Filters{Query: "af"}); len(got) != 0 {
+		t.Errorf("substring 'af' matched %v, want nothing", titles(got))
+	}
+
+	// An explicit prefix query still reaches partial words.
+	got, err = s.GetEntries(userID, Filters{Query: `"lo"*`})
+	if err != nil {
+		t.Fatalf("GetEntries prefix: %v", err)
+	}
+	if want := []string{"Rye loaf"}; !equal(titles(got), want) {
+		t.Errorf("prefix query = %v, want %v", titles(got), want)
+	}
+}
+
+// A stray quote or bare operator is a syntax error in FTS5, not a search for
+// that literal text. Rather than 500, search falls back to a LIKE scan.
+func TestSearchFallsBackOnSyntaxError(t *testing.T) {
+	s, userID, _ := newTestStore(t)
+	seed(t, s, userID, "Sourdough AND rye", "baking", "2024-03-01 09:00:00")
+	seed(t, s, userID, "Plain", "nothing", "2024-03-02 09:00:00")
+
+	// Each of these is a syntax error in FTS5 but a plain substring for LIKE.
+	// The only requirement is that they don't error.
+	for _, q := range []string{`"unbalanced`, "*", `"a" NEAR/ "b"`, "AND"} {
+		if _, err := s.GetEntries(userID, Filters{Query: q}); err != nil {
+			t.Errorf("query %q returned an error instead of falling back: %v", q, err)
+		}
+	}
+
+	// "AND" alone finds the entry whose title contains it, via the LIKE path.
+	got, err := s.GetEntries(userID, Filters{Query: "AND"})
+	if err != nil {
+		t.Fatalf("GetEntries: %v", err)
+	}
+	if want := []string{"Sourdough AND rye"}; !equal(titles(got), want) {
+		t.Errorf("fallback results = %v, want %v", titles(got), want)
+	}
+}
+
+// A hyphen in an ordinary search term reads as a column filter in FTS5 — "mail"
+// and "op" are not columns — which is a 500 waiting to happen without the
+// fallback. This is the single most likely way a real user breaks the query.
+func TestSearchFallbackOnHyphenatedWords(t *testing.T) {
+	s, userID, _ := newTestStore(t)
+	seed(t, s, userID, "Send e-mail to Sam", "the co-op shares", "2024-03-01 09:00:00")
+
+	for _, tc := range []struct{ query, want string }{
+		{"e-mail", "Send e-mail to Sam"},
+		{"co-op", "Send e-mail to Sam"},
+		{"mail", "Send e-mail to Sam"},
+	} {
+		got, err := s.GetEntries(userID, Filters{Query: tc.query})
+		if err != nil {
+			t.Errorf("query %q errored instead of falling back: %v", tc.query, err)
+			continue
+		}
+		if want := []string{tc.want}; !equal(titles(got), want) {
+			t.Errorf("query %q = %v, want %v", tc.query, titles(got), want)
+		}
+	}
+}
+
+// A malformed query must not leak another user's entries via the fallback —
+// the fallback is the same query with a different WHERE, so scoping has to
+// hold on both paths.
+func TestSearchFallbackStillScopedToUser(t *testing.T) {
+	s, userID, otherID := newTestStore(t)
+	seed(t, s, userID, "mine", "b", "2024-03-01 09:00:00")
+	seed(t, s, otherID, "theirs AND more", "b", "2024-03-01 09:00:00")
+
+	got, err := s.GetEntries(userID, Filters{Query: "AND"})
+	if err != nil {
+		t.Fatalf("GetEntries: %v", err)
+	}
+	for _, e := range got {
+		if e.Title == "theirs AND more" {
+			t.Errorf("fallback returned another user's entry")
+		}
+	}
+}
+
+// A non-syntax failure must surface rather than being silently retried as a
+// full table scan.
+func TestSearchDoesNotMaskRealErrors(t *testing.T) {
+	s, userID, _ := newTestStore(t)
+	seed(t, s, userID, "Sourdough", "b", "2024-03-01 09:00:00")
+
+	if _, err := s.db.Exec("DROP TABLE entries_fts"); err != nil {
+		t.Fatalf("drop index: %v", err)
+	}
+	if _, err := s.GetEntries(userID, Filters{Query: "sourdough"}); err == nil {
+		t.Error("search with a missing index returned no error")
 	}
 }
 
