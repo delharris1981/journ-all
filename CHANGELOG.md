@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-10-09
+### Fixed
+- Date filter on the entries page silently matched nothing for any date with more than 100 newer entries — filtering happened after the newest 100 entries were fetched. It now filters in the database, so the limit applies to the matching entries
+- Loading a list page ran one extra query per entry to fetch tags; tags are now fetched for the whole page at once (~7x faster on a 100-entry page)
+
+### Changed
+- All SQL for entries and tags moved out of the handler layer into `internal/store`, which is now covered by tests
+- `GetEntries` and `GetEntriesByTag` were the same query with a different filter and are now one query builder
+
 ## [1.4.0] - 2026-10-05
 ### Added
 - Version number shown in the app footer
