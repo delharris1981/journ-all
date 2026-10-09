@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Tests covering the migrations themselves, including that an existing database's entries are backfilled into the search index on upgrade
 
+### Changed
+- Settings access moved into `internal/store` behind `GetSetting`/`SetSetting` (plus boolean wrappers), so a new setting is a key and a call rather than a bespoke SQL fragment in a handler
+
 ## [1.4.1] - 2026-10-09
 ### Fixed
 - Date filter on the entries page silently matched nothing for any date with more than 100 newer entries — filtering happened after the newest 100 entries were fetched. It now filters in the database, so the limit applies to the matching entries

@@ -19,7 +19,7 @@ func benchStore(b testing.TB, n int) *Store {
 	if err != nil {
 		b.Fatal(err)
 	}
-	for _, m := range []string{"0001_init.up.sql", "0003_fts.up.sql"} {
+	for _, m := range []string{"0001_init.up.sql", "0002_admin.up.sql", "0003_fts.up.sql"} {
 		body, err := os.ReadFile(filepath.Join("..", "..", "migrations", m))
 		if err != nil {
 			b.Fatalf("read %s: %v", m, err)

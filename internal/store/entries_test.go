@@ -35,7 +35,7 @@ func newTestStore(t *testing.T) (*Store, int64, int64) {
 
 	// Read the real migrations rather than restating the schema, so a column
 	// or trigger added in migrations/ is covered by these tests automatically.
-	for _, m := range []string{"0001_init.up.sql", "0003_fts.up.sql"} {
+	for _, m := range []string{"0001_init.up.sql", "0002_admin.up.sql", "0003_fts.up.sql"} {
 		b, err := os.ReadFile(filepath.Join("..", "..", "migrations", m))
 		if err != nil {
 			t.Fatalf("read migration %s: %v", m, err)

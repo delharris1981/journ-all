@@ -87,27 +87,26 @@ func (h *Handler) adminToggleDisabled(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) adminToggleSignups(w http.ResponseWriter, r *http.Request) {
+	userID := auth.GetUserID(r)
 	enabled, err := h.signupsEnabled()
 	if err != nil {
-		h.adminView(w, auth.GetUserID(r), "Could not read signup setting")
+		h.adminView(w, userID, "Could not read signup setting")
 		return
 	}
-	v := "0"
-	if !enabled {
-		v = "1"
-	}
-	if _, err := h.db.Exec("INSERT INTO settings (key, value) VALUES ('signups_enabled', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", v); err != nil {
-		h.adminView(w, auth.GetUserID(r), "Could not update signup setting")
+	if err := h.store.SetBoolSetting(settingSignupsEnabled, !enabled); err != nil {
+		h.adminView(w, userID, "Could not update signup setting")
 		return
 	}
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
+// settingSignupsEnabled gates public registration. A database that predates
+// the setting has no row for it, so the default is enabled — the same value
+// migration 0002 seeds.
+const settingSignupsEnabled = "signups_enabled"
+
+// signupsEnabled reports whether public signups are open, defaulting to true
+// when unset.
 func (h *Handler) signupsEnabled() (bool, error) {
-	var v string
-	err := h.db.QueryRow("SELECT value FROM settings WHERE key = 'signups_enabled'").Scan(&v)
-	if err != nil {
-		return true, err
-	}
-	return v == "1", nil
+	return h.store.GetBoolSetting(settingSignupsEnabled, true)
 }
