@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-10-09
+### Fixed
+- Zip export could produce a filename with a trailing dash when a long title was truncated at the 60-character limit, landing on the separator
+
+### Added
+- Test suite for export/import: filename collisions, slug edge cases, heading parsing, and a full export→import round trip
+- Test suite for auth: password hashing, session creation and expiry, disabled and deleted accounts, and the login middleware
+- End-to-end route tests driving the real router, middleware and templates: entry lifecycle, search, date filtering, auth redirects, admin permissions, signup toggle, and export/import over HTTP
+
 ## [1.5.0] - 2026-10-09
 ### Changed
 - Search now uses an FTS5 index instead of `LIKE '%q%'`, so it stays fast as the collection grows and understands word prefixes (`"loa"*`) and quoted phrases

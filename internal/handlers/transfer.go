@@ -46,12 +46,18 @@ func (h *Handler) export(w http.ResponseWriter, r *http.Request) {
 
 var slugRe = regexp.MustCompile(`[^a-z0-9]+`)
 
+// maxSlugLen keeps export filenames inside common filesystem limits.
+const maxSlugLen = 60
+
 func slugify(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	s = slugRe.ReplaceAllString(s, "-")
 	s = strings.Trim(s, "-")
-	if len(s) > 60 {
-		s = s[:60]
+	if len(s) > maxSlugLen {
+		s = s[:maxSlugLen]
+		// Truncating can land on the separator it just created, leaving a
+		// trailing dash in the filename.
+		s = strings.TrimRight(s, "-")
 	}
 	return s
 }
