@@ -4,16 +4,5 @@
     <h1 class="page-title">{{.Title}}</h1>
     <a href="/tags" class="btn">All tags</a>
 </div>
-{{if .Entries}}
-<ul class="entry-list">
-    {{range .Entries}}
-    <li class="entry-item">
-        <span class="entry-date">{{.CreatedAt.Format "Jan 2, 2006"}}</span>
-        <a href="/entries/{{.ID}}" class="entry-title">{{.Title}}</a>
-    </li>
-    {{end}}
-</ul>
-{{else}}
-<p class="muted">No entries with this tag.</p>
-{{end}}
+{{template "entry_list" .}}
 {{end}}

@@ -21,5 +21,11 @@ func (h *Handler) tagEntries(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		entries = []Entry{}
 	}
-	h.render(w, "tag_entries", PageData{User: userID, Title: tagName, Entries: entries})
+	// ShowTags stays false: every entry on this page already carries tagName.
+	h.render(w, "tag_entries", PageData{
+		User:         userID,
+		Title:        tagName,
+		Entries:      entries,
+		EmptyMessage: "No entries with this tag.",
+	})
 }

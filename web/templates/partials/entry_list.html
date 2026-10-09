@@ -1,0 +1,19 @@
+{{define "entry_list"}}
+{{if .Entries}}
+<ul class="entry-list">
+    {{range .Entries}}
+    <li class="entry-item">
+        <span class="entry-date">{{.CreatedAt.Format "Jan 2, 2006"}}</span>
+        <a href="/entries/{{.ID}}" class="entry-title">{{.Title}}</a>
+        {{if and .Tags $.ShowTags}}
+        <div class="entry-tags">
+            {{range .Tags}}<a href="/tags/{{.Name}}" class="tag">{{.Name}}</a>{{end}}
+        </div>
+        {{end}}
+    </li>
+    {{end}}
+</ul>
+{{else}}
+<p class="muted">{{.EmptyMessage}}</p>
+{{end}}
+{{end}}

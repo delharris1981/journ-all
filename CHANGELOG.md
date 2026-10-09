@@ -5,17 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.5.0] - 2026-10-09
 ### Changed
 - Search now uses an FTS5 index instead of `LIKE '%q%'`, so it stays fast as the collection grows and understands word prefixes (`"loa"*`) and quoted phrases
 - Search matches whole words rather than substrings: `loaf` finds "Rye loaf", `af` no longer matches it. A search that FTS5 cannot parse (a stray quote, `AND` on its own, or a hyphenated word like `e-mail`) falls back to the old substring scan rather than erroring
 - The admin page reports failures instead of showing success: a failed user create, disable, or signup toggle now shows an error, and a failed user list load renders the page with the message instead of a 500
+- Settings access moved into `internal/store` behind `GetSetting`/`SetSetting` (plus boolean wrappers), so a new setting is a key and a call rather than a bespoke SQL fragment in a handler
+- Home, all-entries and tag pages share one entry-list template instead of three that drifted apart; the tag page still omits per-entry tags, and each page keeps its own empty-state message
 
 ### Added
 - Tests covering the migrations themselves, including that an existing database's entries are backfilled into the search index on upgrade
-
-### Changed
-- Settings access moved into `internal/store` behind `GetSetting`/`SetSetting` (plus boolean wrappers), so a new setting is a key and a call rather than a bespoke SQL fragment in a handler
+- Tests rendering each list page against the real templates
 
 ## [1.4.1] - 2026-10-09
 ### Fixed

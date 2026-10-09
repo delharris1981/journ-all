@@ -42,6 +42,15 @@ type PageData struct {
 	IsAdmin        bool
 	Users          []UserRow
 	SignupsEnabled bool
+
+	// ShowTags and EmptyMessage are passed to the shared entry_list partial.
+	// A tag page knows every entry already carries the tag, so repeating it
+	// under each one is noise.
+	//
+	// EmptyMessage is template.HTML because the empty states are hardcoded
+	// copy that contains a link. Never put user input in it.
+	ShowTags     bool
+	EmptyMessage template.HTML
 }
 
 type UserRow struct {
@@ -66,7 +75,11 @@ func New(db *sql.DB) *Handler {
 	pages := []string{"home", "entries", "entry_edit", "entry_view", "calendar", "tags", "tag_entries", "login", "signup", "import", "admin"}
 	templates := make(map[string]*template.Template)
 	for _, page := range pages {
-		t, err := template.New("base.html").Funcs(funcMap).ParseFiles("web/templates/base.html", "web/templates/"+page+".html")
+		t, err := template.New("base.html").Funcs(funcMap).ParseFiles(
+			"web/templates/base.html",
+			"web/templates/partials/entry_list.html",
+			"web/templates/"+page+".html",
+		)
 		if err != nil {
 			panic(err)
 		}

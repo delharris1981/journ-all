@@ -4,21 +4,27 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"journall/internal/store"
 )
 
 // chdirRepo moves to the repo root, because Open resolves migrations relative
-// to the working directory.
+// to the working directory. The path comes from this file's location rather
+// than a relative hop, so it does not depend on where the test was started.
 func chdirRepo(t *testing.T) {
 	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot locate test source")
+	}
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Chdir(wd) })
-	if err := os.Chdir(filepath.Join("..", "..")); err != nil {
+	if err := os.Chdir(filepath.Join(filepath.Dir(file), "..", "..")); err != nil {
 		t.Fatal(err)
 	}
 }

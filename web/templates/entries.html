@@ -10,22 +10,6 @@
         hx-get="/entries" hx-trigger="input delay:300ms, search" hx-target="#entries-list" hx-swap="innerHTML">
 </form>
 <div id="entries-list">
-    {{if .Entries}}
-    <ul class="entry-list">
-        {{range .Entries}}
-        <li class="entry-item">
-            <span class="entry-date">{{.CreatedAt.Format "Jan 2, 2006"}}</span>
-            <a href="/entries/{{.ID}}" class="entry-title">{{.Title}}</a>
-            {{if .Tags}}
-            <div class="entry-tags">
-                {{range .Tags}}<a href="/tags/{{.Name}}" class="tag">{{.Name}}</a>{{end}}
-            </div>
-            {{end}}
-        </li>
-        {{end}}
-    </ul>
-    {{else}}
-    <p class="muted">No entries found.</p>
-    {{end}}
+    {{template "entry_list" .}}
 </div>
 {{end}}

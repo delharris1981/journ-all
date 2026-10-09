@@ -16,7 +16,13 @@ func (h *Handler) home(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		entries = []Entry{}
 	}
-	h.render(w, "home", PageData{User: userID, Title: "Home", Entries: entries})
+	h.render(w, "home", PageData{
+		User:         userID,
+		Title:        "Home",
+		Entries:      entries,
+		ShowTags:     true,
+		EmptyMessage: `No entries yet. <a href="/entries/new">Write your first entry</a>.`,
+	})
 }
 
 func (h *Handler) entries(w http.ResponseWriter, r *http.Request) {
@@ -30,11 +36,19 @@ func (h *Handler) entries(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		entries = []Entry{}
 	}
-	if date != "" {
-		h.render(w, "entries", PageData{User: userID, Title: "Entries for " + date, Entries: entries, Query: query, Date: date})
-		return
+	data := PageData{
+		User:         userID,
+		Title:        "Entries",
+		Entries:      entries,
+		Query:        query,
+		Date:         date,
+		ShowTags:     true,
+		EmptyMessage: "No entries found.",
 	}
-	h.render(w, "entries", PageData{User: userID, Title: "Entries", Entries: entries, Query: query})
+	if date != "" {
+		data.Title = "Entries for " + date
+	}
+	h.render(w, "entries", data)
 }
 
 func (h *Handler) entryNew(w http.ResponseWriter, r *http.Request) {

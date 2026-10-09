@@ -4,21 +4,5 @@
     <h1 class="page-title">Recent entries</h1>
     <a href="/entries/new" class="btn btn-primary">Write</a>
 </div>
-{{if .Entries}}
-<ul class="entry-list">
-    {{range .Entries}}
-    <li class="entry-item">
-        <span class="entry-date">{{.CreatedAt.Format "Jan 2, 2006"}}</span>
-        <a href="/entries/{{.ID}}" class="entry-title">{{.Title}}</a>
-        {{if .Tags}}
-        <div class="entry-tags">
-            {{range .Tags}}<a href="/tags/{{.Name}}" class="tag">{{.Name}}</a>{{end}}
-        </div>
-        {{end}}
-    </li>
-    {{end}}
-</ul>
-{{else}}
-<p class="muted">No entries yet. <a href="/entries/new">Write your first entry</a>.</p>
-{{end}}
+{{template "entry_list" .}}
 {{end}}
