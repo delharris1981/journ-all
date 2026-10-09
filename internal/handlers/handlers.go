@@ -18,28 +18,23 @@ import (
 
 	"github.com/yuin/goldmark"
 	"journall/internal/auth"
+	"journall/internal/store"
 )
 
 type Handler struct {
 	db        *sql.DB
+	store     *store.Store
 	templates map[string]*template.Template
 	md        goldmark.Markdown
 	version   string
 }
 
-type Entry struct {
-	ID        int64
-	Title     string
-	Body      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	Tags      []Tag
-}
-
-type Tag struct {
-	ID   int64
-	Name string
-}
+// Entry and Tag live in the store package; aliases keep the templates and
+// handler signatures unchanged.
+type (
+	Entry = store.Entry
+	Tag   = store.Tag
+)
 
 type CalendarDay struct {
 	Date       string
@@ -141,7 +136,7 @@ func New(db *sql.DB) *Handler {
 			version = v
 		}
 	}
-	return &Handler{db: db, templates: templates, md: md, version: version}
+	return &Handler{db: db, store: store.New(db), templates: templates, md: md, version: version}
 }
 
 func (h *Handler) Routes() http.Handler {
@@ -321,7 +316,7 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) home(w http.ResponseWriter, r *http.Request) {
 	userID := auth.GetUserID(r)
-	entries, err := h.getEntries(userID, "")
+	entries, err := h.store.GetEntries(userID, store.Filters{})
 	if err != nil {
 		entries = []Entry{}
 	}
@@ -332,18 +327,12 @@ func (h *Handler) entries(w http.ResponseWriter, r *http.Request) {
 	userID := auth.GetUserID(r)
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	date := r.URL.Query().Get("date")
-	entries, err := h.getEntries(userID, query)
+
+	// Date filters in SQL rather than after the fetch — filtering in Go
+	// would silently drop matches that fell outside the LIMIT window.
+	entries, err := h.store.GetEntries(userID, store.Filters{Query: query, Date: date})
 	if err != nil {
 		entries = []Entry{}
-	}
-	if date != "" {
-		filtered := entries[:0]
-		for _, e := range entries {
-			if e.CreatedAt.Format("2006-01-02") == date {
-				filtered = append(filtered, e)
-			}
-		}
-		entries = filtered
 	}
 	if date != "" {
 		h.render(w, "entries", PageData{User: userID, Title: "Entries for " + date, Entries: entries, Query: query, Date: date})
@@ -354,7 +343,7 @@ func (h *Handler) entries(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) entryNew(w http.ResponseWriter, r *http.Request) {
 	userID := auth.GetUserID(r)
-	tags, _ := h.getAllTags(userID)
+	tags, _ := h.store.GetAllTags(userID)
 	h.render(w, "entry_edit", PageData{User: userID, Title: "New entry", Tags: tags})
 }
 
@@ -364,16 +353,12 @@ func (h *Handler) entryCreate(w http.ResponseWriter, r *http.Request) {
 	body := strings.TrimSpace(r.FormValue("body"))
 	tagStr := strings.TrimSpace(r.FormValue("tags"))
 
-	res, err := h.db.Exec(
-		"INSERT INTO entries (user_id, title, body) VALUES (?, ?, ?)",
-		userID, title, body,
-	)
+	entryID, err := h.store.CreateEntry(userID, title, body)
 	if err != nil {
 		h.render(w, "entry_edit", PageData{User: userID, Title: "New entry", Error: "Could not save entry"})
 		return
 	}
-	entryID, _ := res.LastInsertId()
-	h.setTags(entryID, userID, tagStr)
+	h.store.SetTags(entryID, userID, tagStr)
 
 	http.Redirect(w, r, fmt.Sprintf("/entries/%d", entryID), http.StatusSeeOther)
 }
@@ -381,7 +366,7 @@ func (h *Handler) entryCreate(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) entryView(w http.ResponseWriter, r *http.Request) {
 	userID := auth.GetUserID(r)
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	entry, err := h.getEntry(userID, id)
+	entry, err := h.store.GetEntry(userID, id)
 	if err != nil {
 		http.Redirect(w, r, "/entries", http.StatusSeeOther)
 		return
@@ -392,12 +377,12 @@ func (h *Handler) entryView(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) entryEdit(w http.ResponseWriter, r *http.Request) {
 	userID := auth.GetUserID(r)
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	entry, err := h.getEntry(userID, id)
+	entry, err := h.store.GetEntry(userID, id)
 	if err != nil {
 		http.Redirect(w, r, "/entries", http.StatusSeeOther)
 		return
 	}
-	tags, _ := h.getAllTags(userID)
+	tags, _ := h.store.GetAllTags(userID)
 	h.render(w, "entry_edit", PageData{User: userID, Title: "Edit entry", Entry: entry, Tags: tags})
 }
 
@@ -408,15 +393,11 @@ func (h *Handler) entryUpdate(w http.ResponseWriter, r *http.Request) {
 	body := strings.TrimSpace(r.FormValue("body"))
 	tagStr := strings.TrimSpace(r.FormValue("tags"))
 
-	_, err := h.db.Exec(
-		"UPDATE entries SET title = ?, body = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?",
-		title, body, id, userID,
-	)
-	if err != nil {
+	if _, err := h.store.UpdateEntry(userID, id, title, body); err != nil {
 		h.render(w, "entry_edit", PageData{User: userID, Title: "Edit entry", Error: "Could not update entry"})
 		return
 	}
-	h.setTags(id, userID, tagStr)
+	h.store.SetTags(id, userID, tagStr)
 	http.Redirect(w, r, fmt.Sprintf("/entries/%d", id), http.StatusSeeOther)
 }
 
@@ -427,7 +408,7 @@ func (h *Handler) entryDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid entry id", http.StatusBadRequest)
 		return
 	}
-	if _, err := h.db.Exec("DELETE FROM entries WHERE id = ? AND user_id = ?", id, userID); err != nil {
+	if _, err := h.store.DeleteEntry(userID, id); err != nil {
 		http.Error(w, "could not delete entry: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -453,19 +434,9 @@ func (h *Handler) calendar(w http.ResponseWriter, r *http.Request) {
 	first := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 	monthEnd := first.AddDate(0, 1, 0)
 
-	rows, err := h.db.Query(
-		"SELECT DISTINCT date(created_at) FROM entries WHERE user_id = ? AND created_at >= ? AND created_at < ?",
-		userID, first.Format(time.RFC3339), monthEnd.Format(time.RFC3339),
-	)
-	entryDates := make(map[string]bool)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var d string
-			if err := rows.Scan(&d); err == nil {
-				entryDates[d] = true
-			}
-		}
+	entryDates, err := h.store.EntryDates(userID, first, monthEnd)
+	if err != nil {
+		entryDates = map[string]bool{}
 	}
 
 	days := buildMonth(first, entryDates, time.Now().Format("2006-01-02"))
@@ -501,14 +472,15 @@ func (h *Handler) calendar(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) tags(w http.ResponseWriter, r *http.Request) {
 	userID := auth.GetUserID(r)
-	tags, _ := h.getAllTags(userID)
+	tags, _ := h.store.GetAllTags(userID)
 	h.render(w, "tags", PageData{User: userID, Title: "Tags", Tags: tags})
 }
 
 func (h *Handler) tagEntries(w http.ResponseWriter, r *http.Request) {
 	userID := auth.GetUserID(r)
 	tagName := r.PathValue("tag")
-	entries, err := h.getEntriesByTag(userID, tagName)
+	// Tag pages were unbounded before this refactor; -1 preserves that.
+	entries, err := h.store.GetEntries(userID, store.Filters{Tag: tagName, Limit: -1})
 	if err != nil {
 		entries = []Entry{}
 	}
@@ -522,7 +494,7 @@ func (h *Handler) export(w http.ResponseWriter, r *http.Request) {
 		format = "zip"
 	}
 
-	entries, _ := h.getEntries(userID, "")
+	entries, _ := h.store.GetEntries(userID, store.Filters{})
 
 	switch format {
 	case "json":
@@ -643,10 +615,7 @@ func (h *Handler) importEntries(userID int64, zipData []byte) (int, error) {
 			base := path.Base(f.Name)
 			title = strings.TrimSuffix(base, filepath.Ext(base))
 		}
-		if _, err := h.db.Exec(
-			"INSERT INTO entries (user_id, title, body) VALUES (?, ?, ?)",
-			userID, title, body,
-		); err != nil {
+		if _, err := h.store.CreateEntry(userID, title, body); err != nil {
 			return n, err
 		}
 		n++
@@ -781,158 +750,4 @@ func (h *Handler) preview(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(buf.String()))
-}
-
-const sqliteTimeFormat = "2006-01-02 15:04:05"
-
-func (h *Handler) getEntries(userID int64, query string) ([]Entry, error) {
-	var rows *sql.Rows
-	var err error
-	if query != "" {
-		rows, err = h.db.Query(`
-			SELECT e.id, e.title, e.body, e.created_at, e.updated_at
-			FROM entries e
-			WHERE e.user_id = ? AND (e.title LIKE ? OR e.body LIKE ?)
-			ORDER BY e.created_at DESC
-			LIMIT 100
-		`, userID, "%"+query+"%", "%"+query+"%")
-	} else {
-		rows, err = h.db.Query(`
-			SELECT id, title, body, created_at, updated_at
-			FROM entries
-			WHERE user_id = ?
-			ORDER BY created_at DESC
-			LIMIT 100
-		`, userID)
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var entries []Entry
-	for rows.Next() {
-		var e Entry
-		var createdAt, updatedAt string
-		if err := rows.Scan(&e.ID, &e.Title, &e.Body, &createdAt, &updatedAt); err != nil {
-			return nil, err
-		}
-		e.CreatedAt, _ = time.Parse(sqliteTimeFormat, createdAt)
-		e.UpdatedAt, _ = time.Parse(sqliteTimeFormat, updatedAt)
-		entries = append(entries, e)
-	}
-	for i := range entries {
-		entries[i].Tags, _ = h.getTagsForEntry(entries[i].ID)
-	}
-	return entries, nil
-}
-
-func (h *Handler) getEntry(userID, id int64) (*Entry, error) {
-	var e Entry
-	var createdAt, updatedAt string
-	err := h.db.QueryRow(`
-		SELECT id, title, body, created_at, updated_at
-		FROM entries WHERE id = ? AND user_id = ?
-	`, id, userID).Scan(&e.ID, &e.Title, &e.Body, &createdAt, &updatedAt)
-	if err != nil {
-		return nil, err
-	}
-	e.CreatedAt, _ = time.Parse(sqliteTimeFormat, createdAt)
-	e.UpdatedAt, _ = time.Parse(sqliteTimeFormat, updatedAt)
-	e.Tags, _ = h.getTagsForEntry(e.ID)
-	return &e, nil
-}
-
-func (h *Handler) getTagsForEntry(entryID int64) ([]Tag, error) {
-	rows, err := h.db.Query(`
-		SELECT t.id, t.name FROM tags t
-		JOIN entry_tags et ON et.tag_id = t.id
-		WHERE et.entry_id = ?
-		ORDER BY t.name
-	`, entryID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var tags []Tag
-	for rows.Next() {
-		var t Tag
-		if err := rows.Scan(&t.ID, &t.Name); err != nil {
-			return nil, err
-		}
-		tags = append(tags, t)
-	}
-	return tags, nil
-}
-
-func (h *Handler) getAllTags(userID int64) ([]Tag, error) {
-	rows, err := h.db.Query(`
-		SELECT t.id, t.name FROM tags t
-		WHERE t.user_id = ?
-		ORDER BY t.name
-	`, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var tags []Tag
-	for rows.Next() {
-		var t Tag
-		if err := rows.Scan(&t.ID, &t.Name); err != nil {
-			return nil, err
-		}
-		tags = append(tags, t)
-	}
-	return tags, nil
-}
-
-func (h *Handler) getEntriesByTag(userID int64, tagName string) ([]Entry, error) {
-	rows, err := h.db.Query(`
-		SELECT e.id, e.title, e.body, e.created_at, e.updated_at
-		FROM entries e
-		JOIN entry_tags et ON et.entry_id = e.id
-		JOIN tags t ON t.id = et.tag_id
-		WHERE e.user_id = ? AND t.name = ?
-		ORDER BY e.created_at DESC
-	`, userID, tagName)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var entries []Entry
-	for rows.Next() {
-		var e Entry
-		var createdAt, updatedAt string
-		if err := rows.Scan(&e.ID, &e.Title, &e.Body, &createdAt, &updatedAt); err != nil {
-			return nil, err
-		}
-		e.CreatedAt, _ = time.Parse(sqliteTimeFormat, createdAt)
-		e.UpdatedAt, _ = time.Parse(sqliteTimeFormat, updatedAt)
-		entries = append(entries, e)
-	}
-	for i := range entries {
-		entries[i].Tags, _ = h.getTagsForEntry(entries[i].ID)
-	}
-	return entries, nil
-}
-
-func (h *Handler) setTags(entryID, userID int64, tagStr string) {
-	h.db.Exec("DELETE FROM entry_tags WHERE entry_id = ?", entryID)
-	if tagStr == "" {
-		return
-	}
-	for _, name := range strings.Split(tagStr, ",") {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
-		var tagID int64
-		err := h.db.QueryRow(
-			"INSERT INTO tags (user_id, name) VALUES (?, ?) ON CONFLICT(user_id, name) DO UPDATE SET name = excluded.name RETURNING id",
-			userID, name,
-		).Scan(&tagID)
-		if err != nil {
-			continue
-		}
-		h.db.Exec("INSERT OR IGNORE INTO entry_tags (entry_id, tag_id) VALUES (?, ?)", entryID, tagID)
-	}
 }
