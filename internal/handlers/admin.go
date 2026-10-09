@@ -9,14 +9,20 @@ import (
 )
 
 func (h *Handler) adminPage(w http.ResponseWriter, r *http.Request) {
-	userID := auth.GetUserID(r)
+	h.adminView(w, auth.GetUserID(r), "")
+}
+
+// adminView is the single loader for the admin page: it renders the user list
+// with an optional error banner. A failure to load the list is reported in the
+// banner rather than as a 500, so the page always renders.
+func (h *Handler) adminView(w http.ResponseWriter, userID int64, msg string) {
 	users, err := h.adminUsers()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		msg = strings.TrimSpace(msg + " " + err.Error())
+		users = nil
 	}
 	enabled, _ := h.signupsEnabled()
-	h.render(w, "admin", PageData{User: userID, Title: "Admin", Users: users, SignupsEnabled: enabled})
+	h.render(w, "admin", PageData{User: userID, Title: "Admin", Users: users, SignupsEnabled: enabled, Error: msg})
 }
 
 func (h *Handler) adminCreateUser(w http.ResponseWriter, r *http.Request) {
@@ -28,19 +34,19 @@ func (h *Handler) adminCreateUser(w http.ResponseWriter, r *http.Request) {
 		isAdmin = 1
 	}
 	if email == "" || len(password) < 8 {
-		h.adminError(w, r, userID, "Email required and password must be at least 8 characters")
+		h.adminView(w, userID, "Email required and password must be at least 8 characters")
 		return
 	}
 	hash, err := auth.HashPassword(password)
 	if err != nil {
-		h.adminError(w, r, userID, "Could not create user")
+		h.adminView(w, userID, "Could not create user")
 		return
 	}
 	if _, err := h.db.Exec(
 		"INSERT INTO users (email, password_hash, is_admin) VALUES (?, ?, ?)",
 		email, hash, isAdmin,
 	); err != nil {
-		h.adminError(w, r, userID, "Email already registered")
+		h.adminView(w, userID, "Email already registered")
 		return
 	}
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
@@ -62,28 +68,38 @@ func (h *Handler) adminUsers() ([]UserRow, error) {
 	return users, rows.Err()
 }
 
-func (h *Handler) adminError(w http.ResponseWriter, r *http.Request, userID int64, msg string) {
-	users, _ := h.adminUsers()
-	enabled, _ := h.signupsEnabled()
-	h.render(w, "admin", PageData{User: userID, Title: "Admin", Users: users, SignupsEnabled: enabled, Error: msg})
-}
-
 func (h *Handler) adminToggleDisabled(w http.ResponseWriter, r *http.Request) {
 	userID := auth.GetUserID(r)
-	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if id != userID { // admins cannot lock themselves out
-		h.db.Exec("UPDATE users SET disabled = CASE disabled WHEN 0 THEN 1 ELSE 0 END WHERE id = ?", id)
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		h.adminView(w, userID, "Invalid user id")
+		return
+	}
+	if id == userID { // admins cannot lock themselves out
+		h.adminView(w, userID, "You cannot disable your own account")
+		return
+	}
+	if _, err := h.db.Exec("UPDATE users SET disabled = CASE disabled WHEN 0 THEN 1 ELSE 0 END WHERE id = ?", id); err != nil {
+		h.adminView(w, userID, "Could not update user")
+		return
 	}
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
 func (h *Handler) adminToggleSignups(w http.ResponseWriter, r *http.Request) {
-	enabled, _ := h.signupsEnabled()
+	enabled, err := h.signupsEnabled()
+	if err != nil {
+		h.adminView(w, auth.GetUserID(r), "Could not read signup setting")
+		return
+	}
 	v := "0"
 	if !enabled {
 		v = "1"
 	}
-	h.db.Exec("INSERT INTO settings (key, value) VALUES ('signups_enabled', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", v)
+	if _, err := h.db.Exec("INSERT INTO settings (key, value) VALUES ('signups_enabled', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", v); err != nil {
+		h.adminView(w, auth.GetUserID(r), "Could not update signup setting")
+		return
+	}
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
